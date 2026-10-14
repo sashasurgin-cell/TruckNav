@@ -1,11 +1,14 @@
 package com.trucknav.app
 
 import android.Manifest
+import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -206,6 +209,45 @@ private fun TruckNavApp() {
     var routeLoading by remember { mutableStateOf(false) }
     var routeSummary by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
+    var updateInProgress by remember { mutableStateOf(false) }
+    var pendingInstallUri by remember { mutableStateOf<Uri?>(null) }
+    val installPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (context.packageManager.canRequestPackageInstalls()) {
+            pendingInstallUri?.let { uri ->
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                }.onFailure {
+                    android.widget.Toast.makeText(context, label("Could not start installer", "Не удалось запустить установщик"), android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+            pendingInstallUri = null
+        } else {
+            android.widget.Toast.makeText(context, label("Allow installs from TruckNav to continue", "Разрешите установку приложений из TruckNav, чтобы продолжить"), android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun installApk(uri: Uri) {
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            pendingInstallUri = uri
+            installPermissionLauncher.launch(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+            )
+        } else {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }
+    }
 
     LaunchedEffect(Unit) {
         availableUpdate = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
@@ -558,22 +600,69 @@ private fun TruckNavApp() {
                                 if (availableUpdate != null) label("Update available", "Доступно обновление") else label("Check for updates", "Проверить обновления"),
                                 modifier = Modifier.weight(1f)
                             )
-                            TextButton(onClick = {
-                                coroutineScope.launch {
-                                    val update = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
-                                    availableUpdate = update
-                                    if (update != null) {
-                                        runCatching {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.apkUrl)))
-                                        }.onFailure {
-                                            android.widget.Toast.makeText(context, label("Could not open APK download", "Не удалось открыть загрузку APK"), android.widget.Toast.LENGTH_SHORT).show()
+                            TextButton(
+                                enabled = !updateInProgress,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        updateInProgress = true
+                                        try {
+                                            val update = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
+                                            availableUpdate = update
+                                            if (update == null) {
+                                                android.widget.Toast.makeText(context, label("TruckNav is up to date", "Установлена последняя версия TruckNav"), android.widget.Toast.LENGTH_SHORT).show()
+                                                return@launch
+                                            }
+
+                                            val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as DownloadManager
+                                            val request = DownloadManager.Request(Uri.parse(update.apkUrl))
+                                                .setTitle("TruckNav ${update.tagName}")
+                                                .setDescription(label("Downloading update…", "Загрузка обновления…"))
+                                                .setMimeType("application/vnd.android.package-archive")
+                                                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "trucknav-${update.tagName}.apk")
+                                            val downloadId = manager.enqueue(request)
+                                            android.widget.Toast.makeText(context, label("Downloading update…", "Загружаю обновление…"), android.widget.Toast.LENGTH_SHORT).show()
+
+                                            var finished = false
+                                            while (!finished) {
+                                                delay(700)
+                                                val query = DownloadManager.Query().setFilterById(downloadId)
+                                                manager.query(query)?.use { cursor ->
+                                                    if (cursor.moveToFirst()) {
+                                                        val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                                                        val reasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
+                                                        when (cursor.getInt(statusIndex)) {
+                                                            DownloadManager.STATUS_SUCCESSFUL -> finished = true
+                                                            DownloadManager.STATUS_FAILED -> {
+                                                                val reason = if (reasonIndex >= 0) cursor.getInt(reasonIndex) else -1
+                                                                throw IllegalStateException("Download failed: $reason")
+                                                            }
+                                                        }
+                                                    } else {
+                                                        throw IllegalStateException("Download not found")
+                                                    }
+                                                }
+                                            }
+                                            val apkUri = manager.getUriForDownloadedFile(downloadId)
+                                                ?: throw IllegalStateException("Downloaded APK URI unavailable")
+                                            installApk(apkUri)
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                label("Update failed. Check your internet connection and try again.", "Не удалось обновить приложение. Проверьте интернет и попробуйте ещё раз."),
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        } finally {
+                                            updateInProgress = false
                                         }
-                                    } else {
-                                        android.widget.Toast.makeText(context, label("TruckNav is up to date", "Установлена последняя версия TruckNav"), android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            }) {
-                                Text(if (availableUpdate != null) label("Update", "Обновить") else label("Check", "Проверить"))
+                            ) {
+                                Text(
+                                    if (updateInProgress) label("Downloading…", "Загрузка…")
+                                    else if (availableUpdate != null) label("Update", "Обновить")
+                                    else label("Check", "Проверить")
+                                )
                             }
                         }
                         Text(
