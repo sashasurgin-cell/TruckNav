@@ -97,6 +97,60 @@ private enum class AppTab { MAP, ROUTE, POI, SAVED, VEHICLE }
 
 private data class LatLng(val latitude: Double, val longitude: Double)
 
+private suspend fun geocodeDestination(query: String): LatLng? = withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        connection = (URL("https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=1&countrycodes=us")
+            .openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 12000
+            readTimeout = 12000
+            setRequestProperty("User-Agent", "TruckNav-Android/1.0 (route planning)")
+            setRequestProperty("Accept", "application/json")
+        }
+        if (connection.responseCode !in 200..299) return@withContext null
+        val arr = org.json.JSONArray(connection.inputStream.bufferedReader().use { it.readText() })
+        if (arr.length() == 0) return@withContext null
+        val item = arr.getJSONObject(0)
+        LatLng(item.getDouble("lat"), item.getDouble("lon"))
+    } catch (_: Exception) {
+        null
+    } finally {
+        connection?.disconnect()
+    }
+}
+
+private suspend fun fetchRoadRoute(start: LatLng, end: LatLng): Pair<List<GeoPoint>, String>? = withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+        val url = "https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true"
+        connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 20000
+            setRequestProperty("User-Agent", "TruckNav-Android/1.0")
+        }
+        if (connection.responseCode !in 200..299) return@withContext null
+        val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        if (root.optString("code") != "Ok") return@withContext null
+        val route = root.getJSONArray("routes").getJSONObject(0)
+        val coords = route.getJSONObject("geometry").getJSONArray("coordinates")
+        val points = (0 until coords.length()).map { i ->
+            val coord = coords.getJSONArray(i)
+            GeoPoint(coord.getDouble(1), coord.getDouble(0))
+        }
+        val km = route.getDouble("distance") / 1000.0
+        val minutes = route.getDouble("duration") / 60.0
+        val summary = String.format(Locale.US, "%.1f mi • %.0f min", km * 0.621371, minutes)
+        Pair(points, summary)
+    } catch (_: Exception) {
+        null
+    } finally {
+        connection?.disconnect()
+    }
+}
+
 private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String)
 
 private val poiCategories = listOf(
