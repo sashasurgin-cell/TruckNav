@@ -176,7 +176,7 @@ private suspend fun fetchRoadRoute(
             put("length", (lengthFt * 0.3048).coerceAtLeast(1.0))
             put("weight", (weightLb / 2204.6226218).coerceAtLeast(0.1))
             put("axle_count", axles.coerceIn(2, 20))
-            put("axle_load", 9.07)
+            put("axle_load", ((weightLb / 2204.6226218) / axles.coerceIn(2, 20)).coerceIn(1.0, 9.07))
             put("use_tolls", if (avoidTolls) 0.0 else 0.5)
             put("use_ferry", if (avoidFerries) 0.0 else 0.5)
             put("use_highways", if (avoidHighways) 0.0 else 0.8)
@@ -193,7 +193,6 @@ private suspend fun fetchRoadRoute(
             put("costing_options", JSONObject().put("truck", truckOptions))
             put("units", "miles")
             put("language", "en-US")
-            put("shape_format", "polyline6")
             put("alternates", 0)
         }
         connection = (URL("https://valhalla1.openstreetmap.de/route").openConnection() as HttpURLConnection).apply {
@@ -389,8 +388,8 @@ private fun TruckNavApp() {
         availableUpdate = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
     }
     var height by remember { mutableStateOf("13.6") }
-    var width by remember { mutableStateOf("2.6") }
-    var length by remember { mutableStateOf("16.2") }
+    var width by remember { mutableStateOf("8.5") }
+    var length by remember { mutableStateOf("71.0") }
     var weight by remember { mutableStateOf("36,287") }
     var axles by remember { mutableStateOf("5") }
     var vehicleType by remember { mutableStateOf("Semi truck") }
@@ -492,8 +491,8 @@ private fun TruckNavApp() {
                 }
                 statusMessage = label("Calculating road route…", "Рассчитываю маршрут…")
                 val parsedHeight = height.toDoubleOrNull() ?: 13.6
-                val parsedWidth = width.toDoubleOrNull() ?: 2.6
-                val parsedLength = length.toDoubleOrNull() ?: 16.2
+                val parsedWidth = width.toDoubleOrNull() ?: 8.5
+                val parsedLength = length.toDoubleOrNull() ?: 71.0
                 val parsedWeight = weight.replace(",", "").toDoubleOrNull() ?: 36287.0
                 val parsedAxles = axles.toIntOrNull() ?: 5
                 val result = fetchRoadRoute(
