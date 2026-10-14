@@ -1,4 +1,5 @@
 name: Build TruckNav APK
+# One-time publish trigger is selected by commit message [publish-v8].
 
 on:
   push:
