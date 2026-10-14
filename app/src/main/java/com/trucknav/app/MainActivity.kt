@@ -166,8 +166,9 @@ private suspend fun fetchRoadRoute(
     avoidTolls: Boolean,
     avoidFerries: Boolean,
     avoidHighways: Boolean,
-    avoidUnpaved: Boolean
-): Pair<List<GeoPoint>, String>? = withContext(Dispatchers.IO) {
+    avoidUnpaved: Boolean,
+    language: String
+): Triple<List<GeoPoint>, String, List<String>>? = withContext(Dispatchers.IO) {
     var connection: HttpURLConnection? = null
     try {
         val truckOptions = JSONObject().apply {
@@ -192,7 +193,7 @@ private suspend fun fetchRoadRoute(
             put("costing", "truck")
             put("costing_options", JSONObject().put("truck", truckOptions))
             put("units", "miles")
-            put("language", "en-US")
+            put("language", language)
             put("alternates", 0)
         }
         connection = (URL("https://valhalla1.openstreetmap.de/route").openConnection() as HttpURLConnection).apply {
@@ -214,15 +215,29 @@ private suspend fun fetchRoadRoute(
         val trip = root.optJSONObject("trip") ?: return@withContext null
         val legs = trip.optJSONArray("legs") ?: return@withContext null
         val points = mutableListOf<GeoPoint>()
+        val directions = mutableListOf<String>()
         for (i in 0 until legs.length()) {
-            val shape = legs.getJSONObject(i).optString("shape")
+            val leg = legs.getJSONObject(i)
+            val shape = leg.optString("shape")
             if (shape.isNotBlank()) points.addAll(decodePolyline6(shape))
+            val maneuvers = leg.optJSONArray("maneuvers")
+            if (maneuvers != null) {
+                for (j in 0 until maneuvers.length()) {
+                    val maneuver = maneuvers.optJSONObject(j) ?: continue
+                    val instruction = maneuver.optString("instruction").trim()
+                    if (instruction.isNotBlank()) {
+                        val distanceMiles = maneuver.optDouble("length", 0.0)
+                        val distanceLabel = if (distanceMiles >= 0.1) String.format(Locale.US, " (%.1f mi)", distanceMiles) else ""
+                        directions.add(instruction + distanceLabel)
+                    }
+                }
+            }
         }
         val summary = trip.optJSONObject("summary") ?: return@withContext null
         val miles = summary.optDouble("length", 0.0)
         val minutes = summary.optDouble("time", 0.0) / 60.0
         if (points.size < 2 || miles <= 0.0) return@withContext null
-        Pair(points, String.format(Locale.US, "%.1f mi • %.0f min", miles, minutes))
+        Triple(points, String.format(Locale.US, "%.1f mi • %.0f min", miles, minutes), directions)
     } catch (_: Exception) {
         null
     } finally {
@@ -341,6 +356,7 @@ private fun TruckNavApp() {
     var routePoints by remember { mutableStateOf(emptyList<GeoPoint>()) }
     var routeLoading by remember { mutableStateOf(false) }
     var routeSummary by remember { mutableStateOf("") }
+    var routeInstructions by remember { mutableStateOf(emptyList<String>()) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -481,6 +497,7 @@ private fun TruckNavApp() {
         routeLoading = true
         routePoints = emptyList()
         routeSummary = ""
+        routeInstructions = emptyList()
         coroutineScope.launch {
             try {
                 statusMessage = label("Finding destination…", "Ищу пункт назначения…")
@@ -497,7 +514,8 @@ private fun TruckNavApp() {
                 val parsedAxles = axles.toIntOrNull() ?: 5
                 val result = fetchRoadRoute(
                     start, end, parsedHeight, parsedWidth, parsedLength, parsedWeight, parsedAxles,
-                    avoidTolls, avoidFerries, avoidHighways, avoidUnpaved
+                    avoidTolls, avoidFerries, avoidHighways, avoidUnpaved,
+                    if (russian) "ru-RU" else "en-US"
                 )
                 if (result == null || result.first.size < 2) {
                     statusMessage = label("Could not calculate route. Check your internet and try again.", "Не удалось построить маршрут. Проверь интернет и попробуй ещё раз.")
@@ -505,6 +523,7 @@ private fun TruckNavApp() {
                 }
                 routePoints = result.first
                 routeSummary = result.second
+                routeInstructions = result.third
                 mapView?.controller?.setCenter(GeoPoint(start.latitude, start.longitude))
                 mapView?.controller?.setZoom(7.0)
                 statusMessage = label("Route drawn. Important: this is a standard car route, not truck-safe navigation. Check truck restrictions before driving.", "Маршрут построен. Важно: это обычный автомобильный маршрут, не грузовая навигация. Перед поездкой проверь ограничения для грузовиков.")
@@ -734,7 +753,13 @@ private fun TruckNavApp() {
                                         Text(if (routeLoading) label("Calculating…", "Рассчитываем…") else label("Calculate truck route", "Рассчитать грузовой маршрут"))
                                     }
                                     if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Text(label("The current route uses a standard car routing service and may ignore truck height, weight, length, and restricted roads. Do not rely on it as truck-safe navigation.", "Сейчас используется обычный автомобильный маршрут. Он может не учитывать высоту, вес, длину и запреты для грузовиков. Не считай его безопасной грузовой навигацией."), style = MaterialTheme.typography.bodySmall)
+                                    if (routeInstructions.isNotEmpty()) {
+                                        Text(label("Turn-by-turn directions", "Повороты по маршруту"), fontWeight = FontWeight.SemiBold)
+                                        routeInstructions.take(14).forEachIndexed { index, instruction ->
+                                            Text("${index + 1}. $instruction", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                    Text(label("Truck routing uses Valhalla truck costing with your dimensions and weight. OpenStreetMap restrictions may be incomplete; verify critical bridge, weight and truck-access signs.", "Маршрут рассчитывается движком Valhalla в режиме грузовика с учётом заданных габаритов и массы. Данные OpenStreetMap могут быть неполными — обязательно проверяй критичные ограничения мостов, веса и въезда."), style = MaterialTheme.typography.bodySmall)
                                 }
                                 AppTab.POI -> {
                                     Text(label("Truck points of interest", "Грузовые объекты (POI)"), style = MaterialTheme.typography.titleLarge)
