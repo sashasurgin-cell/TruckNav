@@ -365,21 +365,6 @@ private fun TruckNavApp() {
                                         Text("TruckNav", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                         Text(label("Truck map", "Грузовая карта"), style = MaterialTheme.typography.bodySmall)
                                     }
-                                    TextButton(onClick = {
-                                        coroutineScope.launch {
-                                            val update = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
-                                            availableUpdate = update
-                                            if (update != null) {
-                                                runCatching {
-                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.apkUrl)))
-                                                }.onFailure {
-                                                    android.widget.Toast.makeText(context, label("Could not open APK download", "Не удалось открыть загрузку APK"), android.widget.Toast.LENGTH_SHORT).show()
-                                                }
-                                            } else {
-                                                android.widget.Toast.makeText(context, label("TruckNav is up to date", "Установлена последняя версия TruckNav"), android.widget.Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }) { Text(if (availableUpdate != null) label("Update", "Обновить") else label("Check", "Проверить")) }
                                     TextButton(onClick = { russian = !russian }) { Text(if (russian) "EN" else "RU") }
                                     IconButton(onClick = { settingsOpen = true }) {
                                         Icon(Icons.Default.Settings, contentDescription = label("Settings", "Настройки"))
@@ -551,6 +536,34 @@ private fun TruckNavApp() {
                 title = { Text(label("App settings", "Настройки приложения")) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            label("App updates", "Обновление приложения"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (availableUpdate != null) label("Update available", "Доступно обновление") else label("Check for updates", "Проверить обновления"),
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = {
+                                coroutineScope.launch {
+                                    val update = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
+                                    availableUpdate = update
+                                    if (update != null) {
+                                        runCatching {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.apkUrl)))
+                                        }.onFailure {
+                                            android.widget.Toast.makeText(context, label("Could not open APK download", "Не удалось открыть загрузку APK"), android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        android.widget.Toast.makeText(context, label("TruckNav is up to date", "Установлена последняя версия TruckNav"), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }) {
+                                Text(if (availableUpdate != null) label("Update", "Обновить") else label("Check", "Проверить"))
+                            }
+                        }
                         Text(
                             label("Route preferences", "Предпочтения маршрута"),
                             style = MaterialTheme.typography.titleSmall,
