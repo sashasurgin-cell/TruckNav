@@ -479,8 +479,9 @@ private fun TruckNavApp() {
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            controller.setZoom(9.5)
-                            controller.setCenter(GeoPoint(41.8781, -87.6298))
+                            controller.setZoom(if (currentLocation != null) 15.0 else 9.5)
+                            val initialCenter = currentLocation ?: mapCenter
+                            controller.setCenter(GeoPoint(initialCenter.latitude, initialCenter.longitude))
                             val osmMap = this
                             addMapListener(object : MapListener {
                                 override fun onScroll(event: ScrollEvent?): Boolean {
@@ -510,6 +511,14 @@ private fun TruckNavApp() {
                                 title = poi.name
                                 snippet = poi.category
                                 setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                            })
+                        }
+                        currentLocation?.let { location ->
+                            map.overlays.add(OsmMarker(map).apply {
+                                position = GeoPoint(location.latitude, location.longitude)
+                                title = label("Your location", "Ваше местоположение")
+                                snippet = label("GPS location", "По GPS")
+                                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_CENTER)
                             })
                         }
                         map.invalidate()
@@ -557,8 +566,17 @@ private fun TruckNavApp() {
                                             Text(label("Plan route", "Построить маршрут"))
                                         }
                                         TextButton(onClick = {
-                                            if (!hasLocationPermission) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                                        }) { Icon(Icons.Default.MyLocation, contentDescription = label("GPS", "GPS")); Text(label(" GPS", " GPS")) }
+                                            if (!hasLocationPermission) {
+                                                permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                                            } else {
+                                                currentLocation?.let { location ->
+                                                    mapView?.controller?.animateTo(GeoPoint(location.latitude, location.longitude))
+                                                    mapView?.controller?.setZoom(15.0)
+                                                } ?: run {
+                                                    statusMessage = label("Waiting for GPS signal…", "Ожидаю сигнал GPS…")
+                                                }
+                                            }
+                                        }) { Icon(Icons.Default.MyLocation, contentDescription = label("My location", "Моё местоположение")); Text(label(" GPS", " GPS")) }
                                     }
                                 }
                             }
@@ -632,7 +650,7 @@ private fun TruckNavApp() {
                                         Text(if (routeLoading) label("Calculating…", "Рассчитываем…") else label("Calculate truck route", "Рассчитать грузовой маршрут"))
                                     }
                                     if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Text(label("Truck-safe routing is not enabled yet. The app will not show a car route as if it were safe for a truck.", "Грузовая маршрутизация пока не подключена. Приложение не будет выдавать легковой маршрут за безопасный для грузовика."), style = MaterialTheme.typography.bodySmall)
+                                    Text(label("The current route uses a standard car routing service and may ignore truck height, weight, length, and restricted roads. Do not rely on it as truck-safe navigation.", "Сейчас используется обычный автомобильный маршрут. Он может не учитывать высоту, вес, длину и запреты для грузовиков. Не считай его безопасной грузовой навигацией."), style = MaterialTheme.typography.bodySmall)
                                 }
                                 AppTab.POI -> {
                                     Text(label("Truck points of interest", "Грузовые объекты (POI)"), style = MaterialTheme.typography.titleLarge)
