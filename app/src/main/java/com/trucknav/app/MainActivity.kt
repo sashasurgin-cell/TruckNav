@@ -1,6 +1,7 @@
 package com.trucknav.app
 
 import android.Manifest
+import android.graphics.Color
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -45,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.rememberScrollState
@@ -56,14 +58,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.MarkerState
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.rememberCameraPositionState
+import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker as OsmMarker
+import org.osmdroid.views.overlay.Polyline
 import java.util.Locale
 import java.net.HttpURLConnection
 import java.net.URL
@@ -178,6 +182,8 @@ private fun TruckNavApp() {
     var visiblePois by remember { mutableStateOf(emptyList<TruckPoi>()) }
     var poiLoading by remember { mutableStateOf(false) }
     var poiRefreshKey by remember { mutableStateOf(0) }
+    var mapView by remember { mutableStateOf<MapView?>(null) }
+    var mapCenter by remember { mutableStateOf(LatLng(41.8781, -87.6298)) }
     var height by remember { mutableStateOf("13.6") }
     var width by remember { mutableStateOf("2.6") }
     var length by remember { mutableStateOf("16.2") }
@@ -198,13 +204,10 @@ private fun TruckNavApp() {
             result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
 
-    val cameraState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(LatLng(41.8781, -87.6298), 9.5f)
-    }
 
     LaunchedEffect(selectedPoi, poiRefreshKey) {
         poiLoading = true
-        visiblePois = loadTruckPois(selectedPoi, cameraState.position.target)
+        visiblePois = loadTruckPois(selectedPoi, mapCenter)
         poiLoading = false
         statusMessage = if (visiblePois.isEmpty()) {
             if (russian) "В этой области объекты не найдены или источник данных временно недоступен." else "No places found in this area, or the data source is temporarily unavailable."
@@ -253,25 +256,42 @@ private fun TruckNavApp() {
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                GoogleMap(
+                AndroidView(
                     modifier = Modifier.fillMaxSize(),
-                    cameraPositionState = cameraState,
-                    properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-                    uiSettings = MapUiSettings(
-                        zoomControlsEnabled = false,
-                        myLocationButtonEnabled = hasLocationPermission,
-                        compassEnabled = true,
-                        mapToolbarEnabled = false
-                    )
-                ) {
-                    visiblePois.forEach { poi ->
-                        Marker(
-                            state = MarkerState(position = LatLng(poi.latitude, poi.longitude)),
-                            title = poi.name,
-                            snippet = poi.category
-                        )
+                    factory = { ctx ->
+                        Configuration.getInstance().userAgentValue = ctx.packageName
+                        MapView(ctx).apply {
+                            setTileSource(TileSourceFactory.MAPNIK)
+                            setMultiTouchControls(true)
+                            controller.setZoom(9.5)
+                            controller.setCenter(GeoPoint(41.8781, -87.6298))
+                            val osmMap = this
+                            addMapListener(object : MapListener {
+                                override fun onScroll(event: ScrollEvent?): Boolean {
+                                    mapCenter = LatLng(osmMap.mapCenter.latitude, osmMap.mapCenter.longitude)
+                                    return true
+                                }
+                                override fun onZoom(event: ZoomEvent?): Boolean {
+                                    mapCenter = LatLng(osmMap.mapCenter.latitude, osmMap.mapCenter.longitude)
+                                    return true
+                                }
+                            })
+                            mapView = this
+                        }
+                    },
+                    update = { map ->
+                        map.overlays.clear()
+                        visiblePois.forEach { poi ->
+                            map.overlays.add(OsmMarker(map).apply {
+                                position = GeoPoint(poi.latitude, poi.longitude)
+                                title = poi.name
+                                snippet = poi.category
+                                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                            })
+                        }
+                        map.invalidate()
                     }
-                }
+                )
 
                 if (selectedTab == AppTab.MAP) {
                     Column(
@@ -359,7 +379,7 @@ private fun TruckNavApp() {
                                         modifier = Modifier.weight(1f),
                                         style = MaterialTheme.typography.bodySmall
                                     )
-                                    TextButton(onClick = { poiRefreshKey++ }) { Text(label("Search area", "Искать здесь")) }
+                                    TextButton(onClick = { mapView?.let { mapCenter = LatLng(it.mapCenter.latitude, it.mapCenter.longitude) }; poiRefreshKey++ }) { Text(label("Search area", "Искать здесь")) }
                                 }
                                 Text(
                                     label(
