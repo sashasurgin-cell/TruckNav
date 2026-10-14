@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +74,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
@@ -171,6 +173,119 @@ private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckP
     }
 }
 
+
+private data class TruckRouteResult(val points: List<GeoPoint>, val distanceMeters: Long, val durationSeconds: Long)
+
+private fun decodeHerePolyline(encoded: String): List<GeoPoint> {
+    var index = 0
+    fun readVarint(): Long {
+        var result = 0L
+        var shift = 0
+        while (index < encoded.length) {
+            val chunk = encoded[index++].code - 63
+            result = result or ((chunk and 31).toLong() shl shift)
+            if (chunk < 32) return result
+            shift += 5
+            if (shift > 60) throw IllegalArgumentException("Invalid route geometry")
+        }
+        return result
+    }
+    fun signed(value: Long): Long = if ((value and 1L) != 0L) -(value shr 1) else value shr 1
+    if (encoded.isEmpty()) return emptyList()
+    if (readVarint() != 1L) throw IllegalArgumentException("Unsupported route geometry version")
+    val precision = readVarint().toInt()
+    val thirdDimension = readVarint()
+    readVarint()
+    val factor = Math.pow(10.0, precision.toDouble())
+    var lat = 0L
+    var lon = 0L
+    val result = mutableListOf<GeoPoint>()
+    while (index < encoded.length) {
+        lat += signed(readVarint())
+        lon += signed(readVarint())
+        if (thirdDimension != 0L && index < encoded.length) readVarint()
+        result.add(GeoPoint(lat / factor, lon / factor))
+    }
+    return result
+}
+
+private suspend fun calculateHereTruckRoute(
+    apiKey: String,
+    origin: LatLng,
+    destination: String,
+    heightFeet: Double,
+    widthFeet: Double,
+    lengthFeet: Double,
+    grossWeightLb: Double,
+    axleCount: Int
+): TruckRouteResult = withContext(Dispatchers.IO) {
+    fun getJson(url: String): JSONObject {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 30000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "TruckNav-Android/0.5")
+        }
+        try {
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) {
+                val error = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                val reason = error.optString("title", error.optString("cause", "HTTP $code"))
+                throw IllegalStateException("HERE API error $code: $reason")
+            }
+            return JSONObject(body)
+        } finally {
+            connection.disconnect()
+        }
+    }
+    val key = java.net.URLEncoder.encode(apiKey, "UTF-8")
+    val geocodeUrl = "https://geocode.search.hereapi.com/v1/geocode?q=" +
+        java.net.URLEncoder.encode(destination, "UTF-8") + "&in=countryCode:USA&apiKey=$key"
+    val items = getJson(geocodeUrl).optJSONArray("items")
+    if (items == null || items.length() == 0) throw IllegalStateException("Address not found. Enter a US address or city and state.")
+    val position = items.getJSONObject(0).getJSONObject("position")
+    val destLat = position.getDouble("lat")
+    val destLon = position.getDouble("lng")
+    val params = listOf(
+        "transportMode" to "truck",
+        "origin" to "${origin.latitude},${origin.longitude}",
+        "destination" to "$destLat,$destLon",
+        "routingMode" to "fast",
+        "return" to "polyline,summary",
+        "lang" to "en-US",
+        "vehicle[height]" to (heightFeet * 30.48).toInt().toString(),
+        "vehicle[width]" to (widthFeet * 30.48).toInt().toString(),
+        "vehicle[length]" to (lengthFeet * 30.48).toInt().toString(),
+        "vehicle[grossWeight]" to (grossWeightLb * 0.45359237).toInt().toString(),
+        "vehicle[axleCount]" to axleCount.coerceIn(2, 20).toString()
+    )
+    val query = params.joinToString("&") { (name, value) ->
+        java.net.URLEncoder.encode(name, "UTF-8") + "=" + java.net.URLEncoder.encode(value, "UTF-8")
+    } + "&apiKey=$key"
+    val routes = getJson("https://router.hereapi.com/v8/routes?$query").optJSONArray("routes")
+    if (routes == null || routes.length() == 0) throw IllegalStateException("HERE returned no truck route for these locations and vehicle dimensions.")
+    val sections = routes.getJSONObject(0).optJSONArray("sections") ?: throw IllegalStateException("No route sections returned.")
+    val points = mutableListOf<GeoPoint>()
+    var distance = 0L
+    var duration = 0L
+    for (i in 0 until sections.length()) {
+        val section = sections.getJSONObject(i)
+        val summary = section.optJSONObject("summary")
+        if (summary != null) {
+            distance += summary.optLong("length")
+            duration += summary.optLong("duration")
+        }
+        val encoded = section.optString("polyline")
+        if (encoded.isNotBlank()) points.addAll(decodeHerePolyline(encoded))
+    }
+    if (points.isEmpty()) throw IllegalStateException("HERE returned no route geometry.")
+    TruckRouteResult(points, distance, duration)
+}
+
+
 @Composable
 private fun TruckNavApp() {
     val context = LocalContext.current
@@ -184,6 +299,10 @@ private fun TruckNavApp() {
     var poiRefreshKey by remember { mutableStateOf(0) }
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var mapCenter by remember { mutableStateOf(LatLng(41.8781, -87.6298)) }
+    var routePoints by remember { mutableStateOf(emptyList<GeoPoint>()) }
+    var routeLoading by remember { mutableStateOf(false) }
+    var routeSummary by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
     var height by remember { mutableStateOf("13.6") }
     var width by remember { mutableStateOf("2.6") }
     var length by remember { mutableStateOf("16.2") }
@@ -216,7 +335,52 @@ private fun TruckNavApp() {
         }
     }
 
+
     fun label(en: String, ru: String) = if (russian) ru else en
+
+    fun calculateTruckRoute() {
+        if (destination.isBlank()) {
+            statusMessage = label("Enter a destination first.", "Сначала введи пункт назначения.")
+            return
+        }
+        if (BuildConfig.HERE_API_KEY.isBlank()) {
+            statusMessage = label(
+                "Routing is wired into the app, but HERE_API_KEY is not configured. Create a HERE API key and add it as a GitHub Actions secret.",
+                "Маршрутизация подключена в коде, но HERE_API_KEY не задан. Создай API-ключ HERE и добавь его в секреты GitHub Actions."
+            )
+            return
+        }
+        routeLoading = true
+        routeSummary = ""
+        statusMessage = label("Calculating truck route…", "Рассчитываем грузовой маршрут…")
+        coroutineScope.launch {
+            try {
+                val route = calculateHereTruckRoute(
+                    BuildConfig.HERE_API_KEY,
+                    mapCenter,
+                    destination,
+                    height.replace(',', '.').toDouble(),
+                    width.replace(',', '.').toDouble(),
+                    length.replace(',', '.').toDouble(),
+                    weight.replace(",", "").replace(" ", "").toDouble(),
+                    axles.toInt()
+                )
+                routePoints = route.points
+                mapView?.controller?.setCenter(route.points.first())
+                mapView?.controller?.setZoom(8.0)
+                routeSummary = String.format(Locale.US, "%.1f mi · %.1f hr", route.distanceMeters / 1609.344, route.durationSeconds / 3600.0)
+                statusMessage = label(
+                    "Route calculated. This is best-effort truck routing; follow posted signs and verify restrictions.",
+                    "Маршрут рассчитан. Это расчёт по доступным данным; соблюдай дорожные знаки и проверяй ограничения."
+                )
+                selectedTab = AppTab.ROUTE
+            } catch (e: Exception) {
+                statusMessage = e.message ?: label("Could not calculate truck route.", "Не удалось рассчитать грузовой маршрут.")
+            } finally {
+                routeLoading = false
+            }
+        }
+    }
 
     MaterialTheme {
         Scaffold(
@@ -281,6 +445,13 @@ private fun TruckNavApp() {
                     },
                     update = { map ->
                         map.overlays.clear()
+                        if (routePoints.size > 1) {
+                            map.overlays.add(Polyline().apply {
+                                setPoints(routePoints)
+                                outlinePaint.color = Color.rgb(25, 105, 220)
+                                outlinePaint.strokeWidth = 9f
+                            })
+                        }
                         visiblePois.forEach { poi ->
                             map.overlays.add(OsmMarker(map).apply {
                                 position = GeoPoint(poi.latitude, poi.longitude)
@@ -328,8 +499,7 @@ private fun TruckNavApp() {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(onClick = {
                                         selectedTab = AppTab.ROUTE
-                                        statusMessage = if (destination.isBlank()) label("Enter a destination to plan a trip.", "Введи пункт назначения для планирования.")
-                                            else label("Truck routing provider is not connected yet.", "Движок грузовой маршрутизации ещё не подключён.")
+                                        calculateTruckRoute()
                                     }, modifier = Modifier.weight(1f)) {
                                         Icon(Icons.Default.Route, contentDescription = null)
                                         Text("  " + label("Plan truck route", "Построить маршрут"))
@@ -412,13 +582,11 @@ private fun TruckNavApp() {
                                         singleLine = true,
                                         label = { Text(label("Destination", "Пункт назначения")) }
                                     )
-                                    Button(onClick = {
-                                        statusMessage = label(
-                                            "The truck routing engine is not connected yet. No route has been calculated.",
-                                            "Движок грузовой маршрутизации ещё не подключён. Маршрут не рассчитан."
-                                        )
-                                    }, modifier = Modifier.fillMaxWidth()) { Text(label("Calculate truck route", "Рассчитать грузовой маршрут")) }
-                                    Text(label("Route calculation will use the selected truck profile and road restrictions.", "При расчёте будут учитываться профиль грузовика и ограничения дорог."), style = MaterialTheme.typography.bodySmall)
+                                    Button(onClick = { calculateTruckRoute() }, enabled = !routeLoading, modifier = Modifier.fillMaxWidth()) {
+                                        Text(if (routeLoading) label("Calculating…", "Рассчитываем…") else label("Calculate truck route", "Рассчитать грузовой маршрут"))
+                                    }
+                                    if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(label("HERE truck routing uses entered height, width, length, gross weight and axle count. It is not a guarantee of legal clearance.", "HERE учитывает высоту, ширину, длину, общий вес и число осей. Это не гарантия юридической проходимости маршрута."), style = MaterialTheme.typography.bodySmall)
                                 }
                                 AppTab.POI -> {
                                     Text(label("Truck points of interest", "Грузовые объекты (POI)"), style = MaterialTheme.typography.titleLarge)
