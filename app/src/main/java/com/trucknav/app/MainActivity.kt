@@ -59,7 +59,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.google.android.gms.maps.model.LatLng
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
@@ -86,6 +85,8 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppTab { MAP, ROUTE, POI, SAVED, VEHICLE }
+
+private data class LatLng(val latitude: Double, val longitude: Double)
 
 private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String)
 
@@ -172,118 +173,6 @@ private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckP
     } finally {
         connection?.disconnect()
     }
-}
-
-
-private data class TruckRouteResult(val points: List<GeoPoint>, val distanceMeters: Long, val durationSeconds: Long)
-
-private fun decodeHerePolyline(encoded: String): List<GeoPoint> {
-    var index = 0
-    fun readVarint(): Long {
-        var result = 0L
-        var shift = 0
-        while (index < encoded.length) {
-            val chunk = encoded[index++].code - 63
-            result = result or ((chunk and 31).toLong() shl shift)
-            if (chunk < 32) return result
-            shift += 5
-            if (shift > 60) throw IllegalArgumentException("Invalid route geometry")
-        }
-        return result
-    }
-    fun signed(value: Long): Long = if ((value and 1L) != 0L) -(value shr 1) else value shr 1
-    if (encoded.isEmpty()) return emptyList()
-    if (readVarint() != 1L) throw IllegalArgumentException("Unsupported route geometry version")
-    val precision = readVarint().toInt()
-    val thirdDimension = readVarint()
-    readVarint()
-    val factor = Math.pow(10.0, precision.toDouble())
-    var lat = 0L
-    var lon = 0L
-    val result = mutableListOf<GeoPoint>()
-    while (index < encoded.length) {
-        lat += signed(readVarint())
-        lon += signed(readVarint())
-        if (thirdDimension != 0L && index < encoded.length) readVarint()
-        result.add(GeoPoint(lat / factor, lon / factor))
-    }
-    return result
-}
-
-private suspend fun calculateHereTruckRoute(
-    apiKey: String,
-    origin: LatLng,
-    destination: String,
-    heightFeet: Double,
-    widthFeet: Double,
-    lengthFeet: Double,
-    grossWeightLb: Double,
-    axleCount: Int
-): TruckRouteResult = withContext(Dispatchers.IO) {
-    fun getJson(url: String): JSONObject {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 15000
-            readTimeout = 30000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "TruckNav-Android/0.5")
-        }
-        try {
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) {
-                val error = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-                val reason = error.optString("title", error.optString("cause", "HTTP $code"))
-                throw IllegalStateException("HERE API error $code: $reason")
-            }
-            return JSONObject(body)
-        } finally {
-            connection.disconnect()
-        }
-    }
-    val key = java.net.URLEncoder.encode(apiKey, "UTF-8")
-    val geocodeUrl = "https://geocode.search.hereapi.com/v1/geocode?q=" +
-        java.net.URLEncoder.encode(destination, "UTF-8") + "&in=countryCode:USA&apiKey=$key"
-    val items = getJson(geocodeUrl).optJSONArray("items")
-    if (items == null || items.length() == 0) throw IllegalStateException("Address not found. Enter a US address or city and state.")
-    val position = items.getJSONObject(0).getJSONObject("position")
-    val destLat = position.getDouble("lat")
-    val destLon = position.getDouble("lng")
-    val params = listOf(
-        "transportMode" to "truck",
-        "origin" to "${origin.latitude},${origin.longitude}",
-        "destination" to "$destLat,$destLon",
-        "routingMode" to "fast",
-        "return" to "polyline,summary",
-        "lang" to "en-US",
-        "vehicle[height]" to (heightFeet * 30.48).toInt().toString(),
-        "vehicle[width]" to (widthFeet * 30.48).toInt().toString(),
-        "vehicle[length]" to (lengthFeet * 30.48).toInt().toString(),
-        "vehicle[grossWeight]" to (grossWeightLb * 0.45359237).toInt().toString(),
-        "vehicle[axleCount]" to axleCount.coerceIn(2, 20).toString()
-    )
-    val query = params.joinToString("&") { (name, value) ->
-        java.net.URLEncoder.encode(name, "UTF-8") + "=" + java.net.URLEncoder.encode(value, "UTF-8")
-    } + "&apiKey=$key"
-    val routes = getJson("https://router.hereapi.com/v8/routes?$query").optJSONArray("routes")
-    if (routes == null || routes.length() == 0) throw IllegalStateException("HERE returned no truck route for these locations and vehicle dimensions.")
-    val sections = routes.getJSONObject(0).optJSONArray("sections") ?: throw IllegalStateException("No route sections returned.")
-    val points = mutableListOf<GeoPoint>()
-    var distance = 0L
-    var duration = 0L
-    for (i in 0 until sections.length()) {
-        val section = sections.getJSONObject(i)
-        val summary = section.optJSONObject("summary")
-        if (summary != null) {
-            distance += summary.optLong("length")
-            duration += summary.optLong("duration")
-        }
-        val encoded = section.optString("polyline")
-        if (encoded.isNotBlank()) points.addAll(decodeHerePolyline(encoded))
-    }
-    if (points.isEmpty()) throw IllegalStateException("HERE returned no route geometry.")
-    TruckRouteResult(points, distance, duration)
 }
 
 
