@@ -364,7 +364,6 @@ private fun TruckNavApp() {
                                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                                         Text("TruckNav", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     }
-                                    TextButton(onClick = { russian = !russian }) { Text(if (russian) "EN" else "RU") }
                                     IconButton(onClick = { settingsOpen = true }) {
                                         Icon(Icons.Default.Settings, contentDescription = label("Settings", "Настройки"))
                                     }
@@ -535,6 +534,20 @@ private fun TruckNavApp() {
                 title = { Text(label("App settings", "Настройки приложения")) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            label("Language", "Язык приложения"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (russian) "Русский" else "English",
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { russian = !russian }) {
+                                Text(if (russian) "English" else "Русский")
+                            }
+                        }
                         Text(
                             label("App updates", "Обновление приложения"),
                             style = MaterialTheme.typography.titleSmall,
