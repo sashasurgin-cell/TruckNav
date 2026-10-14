@@ -1,6 +1,9 @@
 package com.trucknav.app
 
 import android.Manifest
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
@@ -262,6 +265,8 @@ private fun TruckNavApp() {
     var routePoints by remember { mutableStateOf(emptyList<GeoPoint>()) }
     var routeLoading by remember { mutableStateOf(false) }
     var routeSummary by remember { mutableStateOf("") }
+    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+    var hasCenteredOnLocation by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     var updateInProgress by remember { mutableStateOf(false) }
     var pendingInstallUri by remember { mutableStateOf<Uri?>(null) }
@@ -326,6 +331,38 @@ private fun TruckNavApp() {
             result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
 
+    LaunchedEffect(Unit) {
+        if (!hasLocationPermission) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
+    }
+
+    androidx.compose.runtime.DisposableEffect(hasLocationPermission) {
+        val manager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as LocationManager
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                val point = LatLng(location.latitude, location.longitude)
+                currentLocation = point
+                if (!hasCenteredOnLocation) {
+                    mapCenter = point
+                    mapView?.controller?.setZoom(15.0)
+                    mapView?.controller?.setCenter(GeoPoint(point.latitude, point.longitude))
+                    hasCenteredOnLocation = true
+                }
+            }
+        }
+        if (hasLocationPermission) {
+            try {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    manager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let(listener::onLocationChanged)
+                    manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000L, 5f, listener)
+                }
+                manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)?.let(listener::onLocationChanged)
+                manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 10f, listener)
+            } catch (_: SecurityException) { }
+        }
+        onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
+    }
 
     // Refresh POIs automatically when the selected category or map area changes.
     // A 0.1-degree grid avoids firing a request for every tiny map gesture.
@@ -355,12 +392,45 @@ private fun TruckNavApp() {
     fun label(en: String, ru: String) = if (russian) ru else en
 
     fun calculateTruckRoute() {
+        val start = currentLocation
+        if (start == null) {
+            statusMessage = label("Waiting for your GPS location. Enable Location and try again.", "Ожидаю GPS. Включи геолокацию и попробуй ещё раз.")
+            if (!hasLocationPermission) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+        if (destination.isBlank()) {
+            statusMessage = label("Enter a destination address or city.", "Введи адрес или город назначения.")
+            return
+        }
+        routeLoading = true
         routePoints = emptyList()
         routeSummary = ""
-        statusMessage = label(
-            "A genuinely free truck-safe routing engine is not connected yet. We will not substitute a car route because it may ignore truck restrictions.",
-            "Бесплатный движок именно грузовой маршрутизации пока не подключён. Мы не будем подменять его легковым маршрутом: он может игнорировать ограничения для грузовиков."
-        )
+        coroutineScope.launch {
+            try {
+                statusMessage = label("Finding destination…", "Ищу пункт назначения…")
+                val end = geocodeDestination(destination)
+                if (end == null) {
+                    statusMessage = label("Destination not found. Try a full US address or city, state.", "Адрес не найден. Попробуй полный адрес или город и штат.")
+                    return@launch
+                }
+                statusMessage = label("Calculating road route…", "Рассчитываю маршрут…")
+                val result = fetchRoadRoute(start, end)
+                if (result == null || result.first.size < 2) {
+                    statusMessage = label("Could not calculate route. Check your internet and try again.", "Не удалось построить маршрут. Проверь интернет и попробуй ещё раз.")
+                    return@launch
+                }
+                routePoints = result.first
+                routeSummary = result.second
+                mapView?.controller?.setCenter(GeoPoint(start.latitude, start.longitude))
+                mapView?.controller?.setZoom(7.0)
+                statusMessage = label("Route drawn. Important: this is a standard car route, not truck-safe navigation. Check truck restrictions before driving.", "Маршрут построен. Важно: это обычный автомобильный маршрут, не грузовая навигация. Перед поездкой проверь ограничения для грузовиков.")
+                selectedTab = AppTab.MAP
+            } catch (_: Exception) {
+                statusMessage = label("Route calculation failed. Please try again.", "Не удалось рассчитать маршрут. Попробуй ещё раз.")
+            } finally {
+                routeLoading = false
+            }
+        }
     }
 
     MaterialTheme {
