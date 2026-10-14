@@ -363,8 +363,8 @@ private fun TruckNavApp() {
                                 }
                                 Text(
                                     label(
-                                        "Map markers come from OpenStreetMap contributors. Coverage varies by area; live parking availability and fuel prices are not included.",
-                                        "Метки берутся из OpenStreetMap. Покрытие зависит от района; наличие свободных мест и актуальные цены на топливо не предоставляются."
+                                        "© OpenStreetMap contributors. Coverage varies by area; live parking availability and fuel prices are not included.",
+                                        "© OpenStreetMap contributors. Покрытие зависит от района; наличие свободных мест и актуальные цены на топливо не предоставляются."
                                     ),
                                     style = MaterialTheme.typography.bodySmall
                                 )
