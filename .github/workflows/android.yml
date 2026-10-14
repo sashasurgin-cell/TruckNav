@@ -1,5 +1,5 @@
 name: Build TruckNav APK
-# One-time publish trigger is selected by commit message [publish-v16].
+# One-time publish trigger is selected by commit message [publish-v17].
 
 on:
   push:
@@ -40,14 +40,14 @@ jobs:
           retention-days: 14
 
       - name: Set release version
-        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v16]')) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v17]')) }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VERSION_CODE="${GITHUB_REF_NAME#v}"
             RELEASE_TAG="$GITHUB_REF_NAME"
           else
-            VERSION_CODE="16"
-            RELEASE_TAG="v16"
+            VERSION_CODE="17"
+            RELEASE_TAG="v17"
           fi
           [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || (echo "Release tag must look like v10, v11, etc." && exit 1)
           echo "TRUCKNAV_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
@@ -55,7 +55,7 @@ jobs:
           echo "TRUCKNAV_RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Configure release signing key
-        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v16]')) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v17]')) }}
         env:
           KEYSTORE_BASE64: ${{ secrets.TRUCKNAV_KEYSTORE_BASE64 }}
         run: |
@@ -64,7 +64,7 @@ jobs:
           echo "TRUCKNAV_KEYSTORE_FILE=$RUNNER_TEMP/trucknav-release.jks" >> "$GITHUB_ENV"
 
       - name: Build signed release APK
-        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v16]')) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v17]')) }}
         env:
           TRUCKNAV_KEYSTORE_PASSWORD: ${{ secrets.TRUCKNAV_KEYSTORE_PASSWORD }}
           TRUCKNAV_KEY_ALIAS: ${{ secrets.TRUCKNAV_KEY_ALIAS }}
@@ -75,7 +75,7 @@ jobs:
           arguments: assembleRelease
 
       - name: Publish APK release
-        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v16]')) }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v17]')) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
