@@ -124,29 +124,106 @@ private suspend fun geocodeDestination(query: String): LatLng? = withContext(Dis
     }
 }
 
-private suspend fun fetchRoadRoute(start: LatLng, end: LatLng): Pair<List<GeoPoint>, String>? = withContext(Dispatchers.IO) {
+private fun decodePolyline6(encoded: String): List<GeoPoint> {
+    val points = mutableListOf<GeoPoint>()
+    var index = 0
+    var lat = 0
+    var lon = 0
+    while (index < encoded.length) {
+        var result = 0
+        var shift = 0
+        var b: Int
+        do {
+            b = encoded[index++].code - 63
+            result = result or ((b and 0x1f) shl shift)
+            shift += 5
+        } while (b >= 0x20 && index < encoded.length)
+        val deltaLat = if ((result and 1) != 0) (result shr 1).inv() else result shr 1
+        lat += deltaLat
+
+        result = 0
+        shift = 0
+        do {
+            b = encoded[index++].code - 63
+            result = result or ((b and 0x1f) shl shift)
+            shift += 5
+        } while (b >= 0x20 && index < encoded.length)
+        val deltaLon = if ((result and 1) != 0) (result shr 1).inv() else result shr 1
+        lon += deltaLon
+        points.add(GeoPoint(lat / 1_000_000.0, lon / 1_000_000.0))
+    }
+    return points
+}
+
+private suspend fun fetchRoadRoute(
+    start: LatLng,
+    end: LatLng,
+    heightFt: Double,
+    widthFt: Double,
+    lengthFt: Double,
+    weightLb: Double,
+    axles: Int,
+    avoidTolls: Boolean,
+    avoidFerries: Boolean,
+    avoidHighways: Boolean,
+    avoidUnpaved: Boolean
+): Pair<List<GeoPoint>, String>? = withContext(Dispatchers.IO) {
     var connection: HttpURLConnection? = null
     try {
-        val url = "https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true"
-        connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
+        val truckOptions = JSONObject().apply {
+            put("height", (heightFt * 0.3048).coerceAtLeast(0.5))
+            put("width", (widthFt * 0.3048).coerceAtLeast(0.5))
+            put("length", (lengthFt * 0.3048).coerceAtLeast(1.0))
+            put("weight", (weightLb / 2204.6226218).coerceAtLeast(0.1))
+            put("axle_count", axles.coerceIn(2, 20))
+            put("axle_load", 9.07)
+            put("use_tolls", if (avoidTolls) 0.0 else 0.5)
+            put("use_ferry", if (avoidFerries) 0.0 else 0.5)
+            put("use_highways", if (avoidHighways) 0.0 else 0.8)
+            put("exclude_unpaved", if (avoidUnpaved) 1 else 0)
+            put("hgv_no_access_penalty", 43200)
+        }
+        val payload = JSONObject().apply {
+            put("locations", org.json.JSONArray().put(
+                JSONObject().put("lat", start.latitude).put("lon", start.longitude)
+            ).put(
+                JSONObject().put("lat", end.latitude).put("lon", end.longitude)
+            ))
+            put("costing", "truck")
+            put("costing_options", JSONObject().put("truck", truckOptions))
+            put("units", "miles")
+            put("language", "en-US")
+            put("shape_format", "polyline6")
+            put("alternates", 0)
+        }
+        connection = (URL("https://valhalla1.openstreetmap.de/route").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
             connectTimeout = 15000
-            readTimeout = 20000
-            setRequestProperty("User-Agent", "TruckNav-Android/1.0")
+            readTimeout = 30000
+            doOutput = true
+            setRequestProperty("User-Agent", "TruckNav-Android/0.14 (Android navigation app)")
+            setRequestProperty("X-Client-Id", "TruckNav-Android")
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "application/json")
         }
-        if (connection.responseCode !in 200..299) return@withContext null
-        val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-        if (root.optString("code") != "Ok") return@withContext null
-        val route = root.getJSONArray("routes").getJSONObject(0)
-        val coords = route.getJSONObject("geometry").getJSONArray("coordinates")
-        val points = (0 until coords.length()).map { i ->
-            val coord = coords.getJSONArray(i)
-            GeoPoint(coord.getDouble(1), coord.getDouble(0))
+        connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+        val responseCode = connection.responseCode
+        val responseStream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
+        val body = responseStream?.bufferedReader()?.use { it.readText() } ?: return@withContext null
+        if (responseCode !in 200..299) return@withContext null
+        val root = JSONObject(body)
+        val trip = root.optJSONObject("trip") ?: return@withContext null
+        val legs = trip.optJSONArray("legs") ?: return@withContext null
+        val points = mutableListOf<GeoPoint>()
+        for (i in 0 until legs.length()) {
+            val shape = legs.getJSONObject(i).optString("shape")
+            if (shape.isNotBlank()) points.addAll(decodePolyline6(shape))
         }
-        val km = route.getDouble("distance") / 1000.0
-        val minutes = route.getDouble("duration") / 60.0
-        val summary = String.format(Locale.US, "%.1f mi • %.0f min", km * 0.621371, minutes)
-        Pair(points, summary)
+        val summary = trip.optJSONObject("summary") ?: return@withContext null
+        val miles = summary.optDouble("length", 0.0)
+        val minutes = summary.optDouble("time", 0.0) / 60.0
+        if (points.size < 2 || miles <= 0.0) return@withContext null
+        Pair(points, String.format(Locale.US, "%.1f mi • %.0f min", miles, minutes))
     } catch (_: Exception) {
         null
     } finally {
@@ -414,7 +491,15 @@ private fun TruckNavApp() {
                     return@launch
                 }
                 statusMessage = label("Calculating road route…", "Рассчитываю маршрут…")
-                val result = fetchRoadRoute(start, end)
+                val parsedHeight = height.toDoubleOrNull() ?: 13.6
+                val parsedWidth = width.toDoubleOrNull() ?: 2.6
+                val parsedLength = length.toDoubleOrNull() ?: 16.2
+                val parsedWeight = weight.replace(",", "").toDoubleOrNull() ?: 36287.0
+                val parsedAxles = axles.toIntOrNull() ?: 5
+                val result = fetchRoadRoute(
+                    start, end, parsedHeight, parsedWidth, parsedLength, parsedWeight, parsedAxles,
+                    avoidTolls, avoidFerries, avoidHighways, avoidUnpaved
+                )
                 if (result == null || result.first.size < 2) {
                     statusMessage = label("Could not calculate route. Check your internet and try again.", "Не удалось построить маршрут. Проверь интернет и попробуй ещё раз.")
                     return@launch
