@@ -24,6 +24,8 @@ The product takes inspiration from the workflow of truck-driver apps such as Tru
 
 - Android app built with Kotlin and Jetpack Compose
 - Google Maps Android SDK map view
+- Quick-access chips for all 12 truck-driver POI categories on the map
+- Initial live POI lookup using the OpenStreetMap Overpass API, with map markers and a manual “Search here” refresh
 - Russian / English interface toggle
 - Truck-only navigation UI with Map, Trip, POI, Saved, and Truck tabs
 - Initial truck profile fields: vehicle type, height, width, length, weight, and axle count
@@ -31,7 +33,7 @@ The product takes inspiration from the workflow of truck-driver apps such as Tru
 
 ## Important limitations
 
-The current build is a UI and map foundation, not yet a production navigation system. The route calculation engine, live POI provider, live parking status, fuel prices, weigh-station status, turn-by-turn voice guidance, and persistent saved profiles still need to be integrated and tested.
+The current build is an early prototype, not yet a production navigation system. POI lookup now queries OpenStreetMap data through the public Overpass API for the selected category near the map center. Coverage depends on community mapping and the public service may be rate-limited or unavailable. Live parking availability, fuel prices, weigh-station status, route calculation, turn-by-turn voice guidance, and persistent saved profiles are not yet implemented.
 
 A map being visible does not mean a route is certified safe or legal for a truck. TruckNav must show the source and freshness of restriction data and clearly warn when routing data is incomplete or uncertain.
 
@@ -39,7 +41,7 @@ A map being visible does not mean a route is certified safe or legal for a truck
 
 Use licensed APIs and/or legally reusable datasets for road routing and POIs. Do not scrape or copy Trucker Path's private map or proprietary POI database. Any commercial provider will require review of its coverage, license, pricing, rate limits, and permitted display/use.
 
-Google Maps SDK currently provides the map layer in the prototype. Truck-specific routing and POI coverage are separate integrations and must be evaluated independently.
+Google Maps SDK currently provides the map layer in the prototype. POI markers are queried from OpenStreetMap contributors via Overpass; the app should show attribution and never imply the data is complete. Truck-specific routing remains a separate integration. Google documents large-vehicle routing with dimensions, weight, and axle count for the contiguous US, but its own guidance says routes are best-effort and not guaranteed safe or legal for every truck.
 
 ## Build
 
