@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -214,21 +216,43 @@ private fun TruckNavApp() {
                         Card(shape = RoundedCornerShape(18.dp)) {
                             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(label("Truck POI nearby", "Грузовые объекты рядом"), fontWeight = FontWeight.SemiBold)
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf("Parking", "Fuel", "Scales").forEach { category ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(
+                                        "Truck parking", "Weigh stations", "Fuel / DEF", "Truck stops",
+                                        "CAT scales", "Rest areas", "Repair shops", "Truck wash"
+                                    ).forEach { category ->
                                         FilterChip(
                                             selected = selectedPoi == category,
-                                            onClick = { selectedPoi = category },
-                                            label = { Text(when (category) {
-                                                "Parking" -> label("Parking", "Стоянки")
-                                                "Fuel" -> label("Fuel", "Топливо")
-                                                else -> label("Scales", "Весовые")
-                                            }) }
+                                            onClick = {
+                                                selectedPoi = category
+                                                statusMessage = label(
+                                                    "Category selected. Live POI data will be connected in the next stage.",
+                                                    "Категория выбрана. Реальные данные POI подключим на следующем этапе."
+                                                )
+                                            },
+                                            label = {
+                                                Text(when (category) {
+                                                    "Truck parking" -> label("Parking", "Стоянки")
+                                                    "Weigh stations" -> label("Weigh stations", "Весовые")
+                                                    "Fuel / DEF" -> label("Fuel / DEF", "Топливо / DEF")
+                                                    "Truck stops" -> label("Truck stops", "Трак-стопы")
+                                                    "CAT scales" -> label("CAT scales", "CAT-весы")
+                                                    "Rest areas" -> label("Rest areas", "Зоны отдыха")
+                                                    "Repair shops" -> label("Repair", "Ремонт")
+                                                    else -> label("Truck wash", "Мойки")
+                                                })
+                                            }
                                         )
                                     }
                                 }
                                 Text(
-                                    label("POI data will appear after the data provider is connected.", "Объекты появятся после подключения источника данных."),
+                                    label(
+                                        "Choose a category to filter truck-driver POIs. Live listings and availability require a data provider.",
+                                        "Выбери категорию грузовых объектов. Реальные списки и наличие мест появятся после подключения источника данных."
+                                    ),
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
