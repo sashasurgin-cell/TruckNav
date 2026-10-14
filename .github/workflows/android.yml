@@ -71,6 +71,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk \
-            --title "TruckNav $GITHUB_REF_NAME" \
-            --notes "TruckNav update. Download the APK to install or update the app."
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk \
+              --title "TruckNav $GITHUB_REF_NAME" \
+              --notes "TruckNav update. Download the APK to install or update the app."
+          fi
