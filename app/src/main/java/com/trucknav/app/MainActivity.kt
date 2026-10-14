@@ -8,6 +8,11 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Environment
@@ -247,6 +252,38 @@ private suspend fun fetchRoadRoute(
 
 private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String)
 
+
+private fun weighStationMarkerIcon(context: android.content.Context): BitmapDrawable {
+    val width = 88
+    val height = 104
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(190, 64, 36) }
+    canvas.drawCircle(width / 2f, 39f, 32f, circlePaint)
+    val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    canvas.drawCircle(width / 2f, 39f, 32f, outlinePaint)
+    val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = 43f
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+    }
+    canvas.drawText("⚖", width / 2f, 53f, symbolPaint)
+    val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(190, 64, 36) }
+    val path = android.graphics.Path().apply {
+        moveTo(width / 2f - 13f, 62f)
+        lineTo(width / 2f + 13f, 62f)
+        lineTo(width / 2f, 83f)
+        close()
+    }
+    canvas.drawPath(path, pointPaint)
+    return BitmapDrawable(context.resources, bitmap)
+}
+
 private val poiCategories = listOf(
     "Truck parking", "Weigh stations", "Fuel / DEF", "Truck stops",
     "CAT scales", "Rest areas", "Repair shops", "Tire shops",
@@ -255,7 +292,9 @@ private val poiCategories = listOf(
 )
 
 private fun overpassFilter(category: String, lat: Double, lon: Double): String {
-    val area = "(around:25000,$lat,$lon)"
+    // Weigh stations are sparse, so search a much wider radius than ordinary POIs.
+    val radiusMeters = if (category == "Weigh stations") 100000 else 25000
+    val area = "(around:$radiusMeters,$lat,$lon)"
     val queries = when (category) {
         "Truck parking" -> """
             nwr$area["amenity"="parking"]["hgv"~"yes|designated|permissive"];
@@ -266,7 +305,10 @@ private fun overpassFilter(category: String, lat: Double, lon: Double): String {
         "Weigh stations" -> """
             nwr$area["highway"="weigh_station"];
             nwr$area["amenity"="weighbridge"];
-            nwr$area["name"~"weigh station|weigh station|inspection station",i];
+            nwr$area["man_made"="weighbridge"];
+            nwr$area["public_transport"="station"]["name"~"weigh",i];
+            nwr$area["name"~"weigh[ -]?station|weigh[ -]?scale|weigh[ -]?scales|truck scale|truck inspection|commercial vehicle inspection|port of entry|ag inspection|agricultural inspection|DOT inspection|inspection station|scale house|port of entry",i];
+            nwr$area["operator"~"DOT|Department of Transportation|Highway Patrol",i]["name"~"scale|inspection|weigh",i];
         """.trimIndent()
         "Fuel / DEF" -> """
             nwr$area["amenity"="fuel"];
@@ -344,7 +386,7 @@ private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckP
             val name = tags.optString("name").takeIf { it.isNotBlank() } ?: category
             results.add(TruckPoi(element.optLong("id", i.toLong()), name, lat, lon, category))
         }
-        results.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }.take(80)
+        results.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }.take(if (category == "Weigh stations") 300 else 80)
     } catch (_: Exception) {
         emptyList()
     } finally {
@@ -632,7 +674,10 @@ private fun TruckNavApp() {
                             map.overlays.add(OsmMarker(map).apply {
                                 position = GeoPoint(poi.latitude, poi.longitude)
                                 title = poi.name
-                                snippet = poi.category
+                                snippet = if (poi.category == "Weigh stations") label("Weigh station / inspection point — verify operating status and truck access", "Весовая / пункт контроля — проверь режим работы и доступ для грузовиков") else poi.category
+                                if (poi.category == "Weigh stations") {
+                                    icon = weighStationMarkerIcon(context)
+                                }
                                 setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
                             })
                         }
@@ -718,7 +763,7 @@ private fun TruckNavApp() {
                                                 onClick = { selectedPoi = category },
                                                 label = { Text(when (category) {
                                                     "Truck parking" -> label("Parking", "Стоянки")
-                                                    "Weigh stations" -> label("Weigh stations", "Весовые")
+                                                    "Weigh stations" -> label("⚖ Weigh stations", "⚖ Весовые")
                                                     "Fuel / DEF" -> label("Fuel / DEF", "Топливо / DEF")
                                                     "Truck stops" -> label("Truck stops", "Трак-стопы")
                                                     "CAT scales" -> label("CAT scales", "CAT-весы")
