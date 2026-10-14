@@ -40,5 +40,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.maps.android:maps-compose:6.1.0")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
