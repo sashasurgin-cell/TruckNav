@@ -249,43 +249,63 @@ private data class TruckPoi(val id: Long, val name: String, val latitude: Double
 
 private val poiCategories = listOf(
     "Truck parking", "Weigh stations", "Fuel / DEF", "Truck stops",
-    "CAT scales", "Rest areas", "Repair shops", "Truck wash",
-    "Low bridges", "Walmart", "Hotels", "Restaurants"
+    "CAT scales", "Rest areas", "Repair shops", "Tire shops",
+    "Truck wash", "Low bridges", "Walmart", "Truck dealers",
+    "DOT inspections", "Hotels", "Restaurants"
 )
 
 private fun overpassFilter(category: String, lat: Double, lon: Double): String {
     val area = "(around:25000,$lat,$lon)"
     val queries = when (category) {
         "Truck parking" -> """
-            nwr$area["amenity"="parking"]["hgv"="yes"];
+            nwr$area["amenity"="parking"]["hgv"~"yes|designated|permissive"];
             nwr$area["parking"="truck"];
-            nwr$area["name"~"truck parking",i];
+            nwr$area["name"~"truck parking|semi truck parking|overnight truck parking",i];
+            nwr$area["highway"~"rest_area|services"];
         """.trimIndent()
         "Weigh stations" -> """
             nwr$area["highway"="weigh_station"];
             nwr$area["amenity"="weighbridge"];
+            nwr$area["name"~"weigh station|weigh station|inspection station",i];
         """.trimIndent()
-        "Fuel / DEF" -> """nwr$area["amenity"="fuel"];"""
+        "Fuel / DEF" -> """
+            nwr$area["amenity"="fuel"];
+            nwr$area["name"~"diesel|DEF|truck fuel",i];
+        """.trimIndent()
         "Truck stops" -> """
-            nwr$area["name"~"truck stop|travel center|travel plaza",i];
+            nwr$area["name"~"truck stop|travel center|travel plaza|travel centre|truckstop",i];
             nwr$area["amenity"="fuel"]["hgv"="yes"];
+            nwr$area["brand"~"Love.?s|Pilot|Flying J|TA|Petro|Roady.?s|Kwik Trip",i];
         """.trimIndent()
-        "CAT scales" -> """nwr$area["name"~"CAT Scale|CAT Scales",i];"""
+        "CAT scales" -> """nwr$area["name"~"CAT Scale|CAT Scales|Cat Scale",i];"""
         "Rest areas" -> """
             nwr$area["highway"="rest_area"];
             nwr$area["highway"="services"];
+            nwr$area["amenity"="parking"]["name"~"rest area|welcome center",i];
         """.trimIndent()
         "Repair shops" -> """
-            nwr$area["shop"="truck_repair"];
-            nwr$area["shop"="car_repair"];
+            nwr$area["shop"~"truck_repair|car_repair"];
             nwr$area["craft"="mechanic"];
+            nwr$area["name"~"truck repair|diesel repair",i];
+        """.trimIndent()
+        "Tire shops" -> """
+            nwr$area["shop"="tyres"];
+            nwr$area["name"~"truck tire|truck tyre|tire center|tire shop",i];
         """.trimIndent()
         "Truck wash" -> """
-            nwr$area["name"~"truck wash",i];
+            nwr$area["name"~"truck wash|Blue Beacon|trailer washout",i];
             nwr$area["amenity"="car_wash"]["hgv"="yes"];
         """.trimIndent()
         "Low bridges" -> """way$area["maxheight"];"""
         "Walmart" -> """nwr$area["name"~"Walmart",i];"""
+        "Truck dealers" -> """
+            nwr$area["shop"="truck"];
+            nwr$area["name"~"truck dealer|truck sales|Freightliner|Kenworth|Peterbilt|International Trucks|Volvo Trucks|Mack Trucks",i];
+        """.trimIndent()
+        "DOT inspections" -> """
+            nwr$area["name"~"DOT inspection|commercial vehicle inspection|weigh station",i];
+            nwr$area["highway"="weigh_station"];
+        """.trimIndent()
         "Hotels" -> """
             nwr$area["tourism"="hotel"];
             nwr$area["tourism"="motel"];
@@ -526,7 +546,7 @@ private fun TruckNavApp() {
                 routeInstructions = result.third
                 mapView?.controller?.setCenter(GeoPoint(start.latitude, start.longitude))
                 mapView?.controller?.setZoom(7.0)
-                statusMessage = label("Route drawn. Important: this is a standard car route, not truck-safe navigation. Check truck restrictions before driving.", "Маршрут построен. Важно: это обычный автомобильный маршрут, не грузовая навигация. Перед поездкой проверь ограничения для грузовиков.")
+                statusMessage = label("Truck route calculated with Valhalla truck costing and your vehicle profile. Map restrictions may be incomplete; verify posted limits.", "Грузовой маршрут рассчитан Valhalla с учётом профиля автомобиля. Данные об ограничениях могут быть неполными — проверяй дорожные знаки.")
                 selectedTab = AppTab.MAP
             } catch (_: Exception) {
                 statusMessage = label("Route calculation failed. Please try again.", "Не удалось рассчитать маршрут. Попробуй ещё раз.")
@@ -705,8 +725,11 @@ private fun TruckNavApp() {
                                                     "Rest areas" -> label("Rest areas", "Зоны отдыха")
                                                     "Repair shops" -> label("Repair", "Ремонт")
                                                     "Truck wash" -> label("Truck wash", "Мойки")
+                                                    "Tire shops" -> label("Tire shops", "Шиномонтаж")
                                                     "Low bridges" -> label("Low bridges", "Низкие мосты")
                                                     "Walmart" -> "Walmart"
+                                                    "Truck dealers" -> label("Truck dealers", "Дилеры грузовиков")
+                                                    "DOT inspections" -> label("DOT inspection", "DOT-контроль")
                                                     "Hotels" -> label("Hotels", "Отели")
                                                     else -> label("Restaurants", "Рестораны")
                                                 }) }
