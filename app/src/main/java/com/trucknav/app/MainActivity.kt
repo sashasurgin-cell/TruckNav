@@ -360,12 +360,12 @@ private fun TruckNavApp() {
                         }
                     )
                 }.onFailure {
-                    android.widget.Toast.makeText(context, label("Could not start installer", "Не удалось запустить установщик"), android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(context, if (russian) "Не удалось запустить установщик" else "Could not start installer", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
             pendingInstallUri = null
         } else {
-            android.widget.Toast.makeText(context, label("Allow installs from TruckNav to continue", "Разрешите установку приложений из TruckNav, чтобы продолжить"), android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(context, if (russian) "Разрешите установку приложений из TruckNav, чтобы продолжить" else "Allow installs from TruckNav to continue", android.widget.Toast.LENGTH_LONG).show()
         }
     }
 
