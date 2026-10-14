@@ -44,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.rememberScrollState
@@ -58,10 +59,17 @@ import androidx.core.content.ContextCompat
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.rememberCameraPositionState
 import java.util.Locale
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,11 +80,92 @@ class MainActivity : ComponentActivity() {
 
 private enum class AppTab { MAP, ROUTE, POI, SAVED, VEHICLE }
 
+private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String)
+
 private val poiCategories = listOf(
-    "Truck stops", "Truck parking", "Fuel / DEF", "Weigh stations",
+    "Truck parking", "Weigh stations", "Fuel / DEF", "Truck stops",
     "CAT scales", "Rest areas", "Repair shops", "Truck wash",
     "Low bridges", "Walmart", "Hotels", "Restaurants"
 )
+
+private fun overpassFilter(category: String, lat: Double, lon: Double): String {
+    val area = "(around:25000,$lat,$lon)"
+    val queries = when (category) {
+        "Truck parking" -> """
+            nwr$area["amenity"="parking"]["hgv"="yes"];
+            nwr$area["parking"="truck"];
+            nwr$area["name"~"truck parking",i];
+        """.trimIndent()
+        "Weigh stations" -> """
+            nwr$area["highway"="weigh_station"];
+            nwr$area["amenity"="weighbridge"];
+        """.trimIndent()
+        "Fuel / DEF" -> """nwr$area["amenity"="fuel"];"""
+        "Truck stops" -> """
+            nwr$area["name"~"truck stop|travel center|travel plaza",i];
+            nwr$area["amenity"="fuel"]["hgv"="yes"];
+        """.trimIndent()
+        "CAT scales" -> """nwr$area["name"~"CAT Scale|CAT Scales",i];"""
+        "Rest areas" -> """
+            nwr$area["highway"="rest_area"];
+            nwr$area["highway"="services"];
+        """.trimIndent()
+        "Repair shops" -> """
+            nwr$area["shop"="truck_repair"];
+            nwr$area["shop"="car_repair"];
+            nwr$area["craft"="mechanic"];
+        """.trimIndent()
+        "Truck wash" -> """
+            nwr$area["name"~"truck wash",i];
+            nwr$area["amenity"="car_wash"]["hgv"="yes"];
+        """.trimIndent()
+        "Low bridges" -> """way$area["maxheight"];"""
+        "Walmart" -> """nwr$area["name"~"Walmart",i];"""
+        "Hotels" -> """
+            nwr$area["tourism"="hotel"];
+            nwr$area["tourism"="motel"];
+        """.trimIndent()
+        else -> """nwr$area["amenity"="restaurant"];"""
+    }
+    return "[out:json][timeout:20];($queries);out center tags 80;"
+}
+
+private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckPoi> = withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+        val query = overpassFilter(category, center.latitude, center.longitude)
+        connection = (URL("https://overpass-api.de/api/interpreter").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 12000
+            readTimeout = 25000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            setRequestProperty("User-Agent", "TruckNav-Android/0.3")
+        }
+        val body = "data=" + java.net.URLEncoder.encode(query, "UTF-8")
+        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        if (connection.responseCode !in 200..299) return@withContext emptyList()
+        val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        val elements = json.optJSONArray("elements") ?: return@withContext emptyList()
+        val results = mutableListOf<TruckPoi>()
+        for (i in 0 until elements.length()) {
+            val element = elements.optJSONObject(i) ?: continue
+            val tags = element.optJSONObject("tags") ?: JSONObject()
+            val lat = if (element.has("lat")) element.optDouble("lat", Double.NaN)
+                else element.optJSONObject("center")?.optDouble("lat", Double.NaN) ?: Double.NaN
+            val lon = if (element.has("lon")) element.optDouble("lon", Double.NaN)
+                else element.optJSONObject("center")?.optDouble("lon", Double.NaN) ?: Double.NaN
+            if (!lat.isFinite() || !lon.isFinite()) continue
+            val name = tags.optString("name").takeIf { it.isNotBlank() } ?: category
+            results.add(TruckPoi(element.optLong("id", i.toLong()), name, lat, lon, category))
+        }
+        results.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }.take(80)
+    } catch (_: Exception) {
+        emptyList()
+    } finally {
+        connection?.disconnect()
+    }
+}
 
 @Composable
 private fun TruckNavApp() {
@@ -86,6 +175,9 @@ private fun TruckNavApp() {
     var destination by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf("") }
     var selectedPoi by remember { mutableStateOf("Truck stops") }
+    var visiblePois by remember { mutableStateOf(emptyList<TruckPoi>()) }
+    var poiLoading by remember { mutableStateOf(false) }
+    var poiRefreshKey by remember { mutableStateOf(0) }
     var height by remember { mutableStateOf("13.6") }
     var width by remember { mutableStateOf("2.6") }
     var length by remember { mutableStateOf("16.2") }
@@ -108,6 +200,17 @@ private fun TruckNavApp() {
 
     val cameraState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(LatLng(41.8781, -87.6298), 9.5f)
+    }
+
+    LaunchedEffect(selectedPoi, poiRefreshKey) {
+        poiLoading = true
+        visiblePois = loadTruckPois(selectedPoi, cameraState.position.target)
+        poiLoading = false
+        statusMessage = if (visiblePois.isEmpty()) {
+            if (russian) "В этой области объекты не найдены или источник данных временно недоступен." else "No places found in this area, or the data source is temporarily unavailable."
+        } else {
+            if (russian) "Найдено объектов: ${visiblePois.size}. Данные OpenStreetMap могут быть неполными." else "Found ${visiblePois.size} places. OpenStreetMap data may be incomplete."
+        }
     }
 
     fun label(en: String, ru: String) = if (russian) ru else en
@@ -160,7 +263,15 @@ private fun TruckNavApp() {
                         compassEnabled = true,
                         mapToolbarEnabled = false
                     )
-                )
+                ) {
+                    visiblePois.forEach { poi ->
+                        Marker(
+                            state = MarkerState(position = LatLng(poi.latitude, poi.longitude)),
+                            title = poi.name,
+                            snippet = poi.category
+                        )
+                    }
+                }
 
                 if (selectedTab == AppTab.MAP) {
                     Column(
@@ -220,38 +331,40 @@ private fun TruckNavApp() {
                                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    listOf(
-                                        "Truck parking", "Weigh stations", "Fuel / DEF", "Truck stops",
-                                        "CAT scales", "Rest areas", "Repair shops", "Truck wash"
-                                    ).forEach { category ->
+                                    poiCategories.forEach { category ->
                                         FilterChip(
                                             selected = selectedPoi == category,
-                                            onClick = {
-                                                selectedPoi = category
-                                                statusMessage = label(
-                                                    "Category selected. Live POI data will be connected in the next stage.",
-                                                    "Категория выбрана. Реальные данные POI подключим на следующем этапе."
-                                                )
-                                            },
-                                            label = {
-                                                Text(when (category) {
-                                                    "Truck parking" -> label("Parking", "Стоянки")
-                                                    "Weigh stations" -> label("Weigh stations", "Весовые")
-                                                    "Fuel / DEF" -> label("Fuel / DEF", "Топливо / DEF")
-                                                    "Truck stops" -> label("Truck stops", "Трак-стопы")
-                                                    "CAT scales" -> label("CAT scales", "CAT-весы")
-                                                    "Rest areas" -> label("Rest areas", "Зоны отдыха")
-                                                    "Repair shops" -> label("Repair", "Ремонт")
-                                                    else -> label("Truck wash", "Мойки")
-                                                })
-                                            }
+                                            onClick = { selectedPoi = category },
+                                            label = { Text(when (category) {
+                                                "Truck parking" -> label("Parking", "Стоянки")
+                                                "Weigh stations" -> label("Weigh stations", "Весовые")
+                                                "Fuel / DEF" -> label("Fuel / DEF", "Топливо / DEF")
+                                                "Truck stops" -> label("Truck stops", "Трак-стопы")
+                                                "CAT scales" -> label("CAT scales", "CAT-весы")
+                                                "Rest areas" -> label("Rest areas", "Зоны отдыха")
+                                                "Repair shops" -> label("Repair", "Ремонт")
+                                                "Truck wash" -> label("Truck wash", "Мойки")
+                                                "Low bridges" -> label("Low bridges", "Низкие мосты")
+                                                "Walmart" -> "Walmart"
+                                                "Hotels" -> label("Hotels", "Отели")
+                                                else -> label("Restaurants", "Рестораны")
+                                            }) }
                                         )
                                     }
                                 }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        if (poiLoading) label("Searching…", "Ищем объекты…")
+                                        else label("${visiblePois.size} places found", "Найдено объектов: ${visiblePois.size}"),
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    TextButton(onClick = { poiRefreshKey++ }) { Text(label("Search area", "Искать здесь")) }
+                                }
                                 Text(
                                     label(
-                                        "Choose a category to filter truck-driver POIs. Live listings and availability require a data provider.",
-                                        "Выбери категорию грузовых объектов. Реальные списки и наличие мест появятся после подключения источника данных."
+                                        "Map markers come from OpenStreetMap contributors. Coverage varies by area; live parking availability and fuel prices are not included.",
+                                        "Метки берутся из OpenStreetMap. Покрытие зависит от района; наличие свободных мест и актуальные цены на топливо не предоставляются."
                                     ),
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -290,6 +403,7 @@ private fun TruckNavApp() {
                                 AppTab.POI -> {
                                     Text(label("Truck points of interest", "Грузовые объекты (POI)"), style = MaterialTheme.typography.titleLarge)
                                     Text(label("Choose categories to show on the map.", "Выбери категории для отображения на карте."), style = MaterialTheme.typography.bodyMedium)
+                                    Button(onClick = { selectedTab = AppTab.MAP }, modifier = Modifier.fillMaxWidth()) { Text(label("Open map and search", "Открыть карту и искать")) }
                                     LazyColumn(modifier = Modifier.height(340.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         items(poiCategories) { category ->
                                             Row(verticalAlignment = Alignment.CenterVertically) {
