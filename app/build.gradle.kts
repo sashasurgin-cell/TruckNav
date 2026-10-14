@@ -8,6 +8,8 @@ android {
     namespace = "com.trucknav.app"
     compileSdk = 35
 
+    buildFeatures { buildConfig = true }
+
     defaultConfig {
         applicationId = "com.trucknav.app"
         minSdk = 26
@@ -15,6 +17,7 @@ android {
         versionCode = 4
         versionName = "0.4.0"
         manifestPlaceholders["MAPS_API_KEY"] = providers.gradleProperty("MAPS_API_KEY").orElse("").get()
+        buildConfigField("String", "HERE_API_KEY", "\"${providers.gradleProperty("HERE_API_KEY").orElse("").get()}\"")
     }
 
     buildTypes {
