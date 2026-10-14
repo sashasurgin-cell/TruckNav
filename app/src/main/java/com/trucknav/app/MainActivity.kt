@@ -449,8 +449,8 @@ private fun TruckNavApp() {
                         if (routePoints.size > 1) {
                             map.overlays.add(Polyline().apply {
                                 setPoints(routePoints)
-                                outlinePaint.color = Color.rgb(25, 105, 220)
-                                outlinePaint.strokeWidth = 9f
+                                setColor(Color.rgb(25, 105, 220))
+                                setWidth(9f)
                             })
                         }
                         visiblePois.forEach { poi ->
