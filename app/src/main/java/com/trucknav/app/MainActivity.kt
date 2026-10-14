@@ -75,6 +75,7 @@ import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
@@ -324,14 +325,27 @@ private fun TruckNavApp() {
     }
 
 
-    LaunchedEffect(selectedPoi, poiRefreshKey) {
-        poiLoading = true
-        visiblePois = loadTruckPois(selectedPoi, mapCenter)
-        poiLoading = false
-        statusMessage = if (visiblePois.isEmpty()) {
-            if (russian) "В этой области объекты не найдены или источник данных временно недоступен." else "No places found in this area, or the data source is temporarily unavailable."
-        } else {
-            if (russian) "Найдено объектов: ${visiblePois.size}. Данные OpenStreetMap могут быть неполными." else "Found ${visiblePois.size} places. OpenStreetMap data may be incomplete."
+    // Refresh POIs automatically when the selected category or map area changes.
+    // A 0.1-degree grid avoids firing a request for every tiny map gesture.
+    LaunchedEffect(
+        selectedPoi,
+        poiRefreshKey,
+        String.format(Locale.US, "%.1f", mapCenter.latitude),
+        String.format(Locale.US, "%.1f", mapCenter.longitude)
+    ) {
+        delay(900)
+        while (true) {
+            poiLoading = true
+            val loaded = loadTruckPois(selectedPoi, mapCenter)
+            visiblePois = loaded
+            poiLoading = false
+            statusMessage = if (loaded.isEmpty()) {
+                if (russian) "Объекты не найдены или бесплатный источник временно недоступен." else "No places found, or the free data source is temporarily unavailable."
+            } else {
+                if (russian) "Найдено: ${loaded.size}. Источник: OpenStreetMap; полнота данных зависит от региона." else "Found: ${loaded.size}. Source: OpenStreetMap; coverage varies by region."
+            }
+            // Periodic refresh while the app remains open; a new map area/category restarts this loop.
+            delay(6 * 60 * 60 * 1000L)
         }
     }
 
@@ -339,47 +353,12 @@ private fun TruckNavApp() {
     fun label(en: String, ru: String) = if (russian) ru else en
 
     fun calculateTruckRoute() {
-        if (destination.isBlank()) {
-            statusMessage = label("Enter a destination first.", "Сначала введи пункт назначения.")
-            return
-        }
-        if (BuildConfig.HERE_API_KEY.isBlank()) {
-            statusMessage = label(
-                "Routing is wired into the app, but HERE_API_KEY is not configured. Create a HERE API key and add it as a GitHub Actions secret.",
-                "Маршрутизация подключена в коде, но HERE_API_KEY не задан. Создай API-ключ HERE и добавь его в секреты GitHub Actions."
-            )
-            return
-        }
-        routeLoading = true
+        routePoints = emptyList()
         routeSummary = ""
-        statusMessage = label("Calculating truck route…", "Рассчитываем грузовой маршрут…")
-        coroutineScope.launch {
-            try {
-                val route = calculateHereTruckRoute(
-                    BuildConfig.HERE_API_KEY,
-                    mapCenter,
-                    destination,
-                    height.replace(',', '.').toDouble(),
-                    width.replace(',', '.').toDouble(),
-                    length.replace(',', '.').toDouble(),
-                    weight.replace(",", "").replace(" ", "").toDouble(),
-                    axles.toInt()
-                )
-                routePoints = route.points
-                mapView?.controller?.setCenter(route.points.first())
-                mapView?.controller?.setZoom(8.0)
-                routeSummary = String.format(Locale.US, "%.1f mi · %.1f hr", route.distanceMeters / 1609.344, route.durationSeconds / 3600.0)
-                statusMessage = label(
-                    "Route calculated. This is best-effort truck routing; follow posted signs and verify restrictions.",
-                    "Маршрут рассчитан. Это расчёт по доступным данным; соблюдай дорожные знаки и проверяй ограничения."
-                )
-                selectedTab = AppTab.ROUTE
-            } catch (e: Exception) {
-                statusMessage = e.message ?: label("Could not calculate truck route.", "Не удалось рассчитать грузовой маршрут.")
-            } finally {
-                routeLoading = false
-            }
-        }
+        statusMessage = label(
+            "A genuinely free truck-safe routing engine is not connected yet. We will not substitute a car route because it may ignore truck restrictions.",
+            "Бесплатный движок именно грузовой маршрутизации пока не подключён. Мы не будем подменять его легковым маршрутом: он может игнорировать ограничения для грузовиков."
+        )
     }
 
     MaterialTheme {
