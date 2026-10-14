@@ -1,6 +1,8 @@
 package com.trucknav.app
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Color
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -183,6 +185,7 @@ private fun TruckNavApp() {
     var selectedTab by remember { mutableStateOf(AppTab.MAP) }
     var destination by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf("") }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var selectedPoi by remember { mutableStateOf("Truck stops") }
     var visiblePois by remember { mutableStateOf(emptyList<TruckPoi>()) }
     var poiLoading by remember { mutableStateOf(false) }
@@ -193,6 +196,10 @@ private fun TruckNavApp() {
     var routeLoading by remember { mutableStateOf(false) }
     var routeSummary by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        availableUpdate = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
+    }
     var height by remember { mutableStateOf("13.6") }
     var width by remember { mutableStateOf("2.6") }
     var length by remember { mutableStateOf("16.2") }
@@ -347,6 +354,13 @@ private fun TruckNavApp() {
                                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                                         Text("TruckNav", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                         Text(label("Truck map", "Грузовая карта"), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (availableUpdate != null) {
+                                        TextButton(onClick = {
+                                            runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(availableUpdate!!.apkUrl)))
+                                            }
+                                        }) { Text(label("Update", "Обновить")) }
                                     }
                                     TextButton(onClick = { russian = !russian }) { Text(if (russian) "EN" else "RU") }
                                     TextButton(onClick = { routePanelExpanded = !routePanelExpanded; poiPanelExpanded = false }) {
