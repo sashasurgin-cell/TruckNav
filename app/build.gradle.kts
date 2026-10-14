@@ -14,8 +14,8 @@ android {
         applicationId = "com.trucknav.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         manifestPlaceholders["MAPS_API_KEY"] = providers.gradleProperty("MAPS_API_KEY").orElse("").get()
         buildConfigField("String", "HERE_API_KEY", "\"${providers.gradleProperty("HERE_API_KEY").orElse("").get()}\"")
     }
