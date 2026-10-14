@@ -25,7 +25,7 @@ jobs:
         uses: gradle/gradle-build-action@v3
         with:
           gradle-version: "8.9"
-          arguments: assembleDebug -PMAPS_API_KEY=${{ secrets.MAPS_API_KEY }}
+          arguments: assembleDebug -PMAPS_API_KEY=${{ secrets.MAPS_API_KEY }} -PHERE_API_KEY=${{ secrets.HERE_API_KEY }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
