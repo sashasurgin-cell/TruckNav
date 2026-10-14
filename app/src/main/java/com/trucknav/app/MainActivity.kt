@@ -362,8 +362,7 @@ private fun TruckNavApp() {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(25.dp))
                                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                                        Text("TruckNav", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                        Text(label("Truck map", "Грузовая карта"), style = MaterialTheme.typography.bodySmall)
+                                        Text("TruckNav", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     }
                                     TextButton(onClick = { russian = !russian }) { Text(if (russian) "EN" else "RU") }
                                     IconButton(onClick = { settingsOpen = true }) {
