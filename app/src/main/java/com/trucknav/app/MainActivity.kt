@@ -334,99 +334,92 @@ private fun TruckNavApp() {
                 )
 
                 if (selectedTab == AppTab.MAP) {
+                    var routePanelExpanded by remember { mutableStateOf(false) }
+                    var poiPanelExpanded by remember { mutableStateOf(false) }
                     Column(
-                        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp),
+                        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Card(
-                            shape = RoundedCornerShape(22.dp),
-                            elevation = CardDefaults.cardElevation(5.dp)
-                        ) {
-                            Column(
-                                Modifier.fillMaxWidth().padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
+                        Card(shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(5.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(28.dp))
+                                    Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(25.dp))
                                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                                        Text("TruckNav", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                        Text(label("Truck GPS & driver POI", "Грузовая навигация США"), style = MaterialTheme.typography.bodySmall)
+                                        Text("TruckNav", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                        Text(label("Truck map", "Грузовая карта"), style = MaterialTheme.typography.bodySmall)
                                     }
-                                    TextButton(onClick = { russian = !russian }) {
-                                        Text(if (russian) "EN" else "RU")
+                                    TextButton(onClick = { russian = !russian }) { Text(if (russian) "EN" else "RU") }
+                                    TextButton(onClick = { routePanelExpanded = !routePanelExpanded; poiPanelExpanded = false }) {
+                                        Icon(Icons.Default.Route, contentDescription = null)
+                                        Text(if (routePanelExpanded) "  −" else "  +")
+                                    }
+                                    TextButton(onClick = { poiPanelExpanded = !poiPanelExpanded; routePanelExpanded = false }) {
+                                        Icon(Icons.Default.Tune, contentDescription = null)
+                                        Text(if (poiPanelExpanded) "  −" else "  +")
                                     }
                                 }
-                                OutlinedTextField(
-                                    value = destination,
-                                    onValueChange = { destination = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                    placeholder = { Text(label("Address, city, truck stop…", "Адрес, город, truck stop…")) }
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = {
-                                        selectedTab = AppTab.ROUTE
-                                        calculateTruckRoute()
-                                    }, modifier = Modifier.weight(1f)) {
-                                        Icon(Icons.Default.Route, contentDescription = null)
-                                        Text("  " + label("Plan truck route", "Построить маршрут"))
-                                    }
-                                    Button(onClick = {
-                                        if (!hasLocationPermission) {
-                                            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                                if (routePanelExpanded) {
+                                    OutlinedTextField(
+                                        value = destination,
+                                        onValueChange = { destination = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp),
+                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                        placeholder = { Text(label("Destination address or city", "Адрес или город назначения")) }
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Button(onClick = { selectedTab = AppTab.ROUTE; calculateTruckRoute() }, modifier = Modifier.weight(1f)) {
+                                            Text(label("Plan route", "Построить маршрут"))
                                         }
-                                    }) {
-                                        Icon(Icons.Default.MyLocation, contentDescription = label("Location permission", "Доступ к GPS"))
+                                        TextButton(onClick = {
+                                            if (!hasLocationPermission) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                                        }) { Icon(Icons.Default.MyLocation, contentDescription = label("GPS", "GPS")); Text(label(" GPS", " GPS")) }
                                     }
                                 }
                             }
                         }
-                        Card(shape = RoundedCornerShape(18.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(label("Truck POI nearby", "Грузовые объекты рядом"), fontWeight = FontWeight.SemiBold)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    poiCategories.forEach { category ->
-                                        FilterChip(
-                                            selected = selectedPoi == category,
-                                            onClick = { selectedPoi = category },
-                                            label = { Text(when (category) {
-                                                "Truck parking" -> label("Parking", "Стоянки")
-                                                "Weigh stations" -> label("Weigh stations", "Весовые")
-                                                "Fuel / DEF" -> label("Fuel / DEF", "Топливо / DEF")
-                                                "Truck stops" -> label("Truck stops", "Трак-стопы")
-                                                "CAT scales" -> label("CAT scales", "CAT-весы")
-                                                "Rest areas" -> label("Rest areas", "Зоны отдыха")
-                                                "Repair shops" -> label("Repair", "Ремонт")
-                                                "Truck wash" -> label("Truck wash", "Мойки")
-                                                "Low bridges" -> label("Low bridges", "Низкие мосты")
-                                                "Walmart" -> "Walmart"
-                                                "Hotels" -> label("Hotels", "Отели")
-                                                else -> label("Restaurants", "Рестораны")
-                                            }) }
+                        if (poiPanelExpanded) {
+                            Card(shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(5.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(label("Truck objects", "Грузовые объекты"), fontWeight = FontWeight.SemiBold)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        poiCategories.forEach { category ->
+                                            FilterChip(
+                                                selected = selectedPoi == category,
+                                                onClick = { selectedPoi = category },
+                                                label = { Text(when (category) {
+                                                    "Truck parking" -> label("Parking", "Стоянки")
+                                                    "Weigh stations" -> label("Weigh stations", "Весовые")
+                                                    "Fuel / DEF" -> label("Fuel / DEF", "Топливо / DEF")
+                                                    "Truck stops" -> label("Truck stops", "Трак-стопы")
+                                                    "CAT scales" -> label("CAT scales", "CAT-весы")
+                                                    "Rest areas" -> label("Rest areas", "Зоны отдыха")
+                                                    "Repair shops" -> label("Repair", "Ремонт")
+                                                    "Truck wash" -> label("Truck wash", "Мойки")
+                                                    "Low bridges" -> label("Low bridges", "Низкие мосты")
+                                                    "Walmart" -> "Walmart"
+                                                    "Hotels" -> label("Hotels", "Отели")
+                                                    else -> label("Restaurants", "Рестораны")
+                                                }) }
+                                            )
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            if (poiLoading) label("Searching…", "Ищем…")
+                                            else label("${visiblePois.size} places", "Объектов: ${visiblePois.size}"),
+                                            modifier = Modifier.weight(1f),
+                                            style = MaterialTheme.typography.bodySmall
                                         )
+                                        TextButton(onClick = { mapView?.let { mapCenter = LatLng(it.mapCenter.latitude, it.mapCenter.longitude) }; poiRefreshKey++ }) {
+                                            Text(label("Search here", "Искать здесь"))
+                                        }
                                     }
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        if (poiLoading) label("Searching…", "Ищем объекты…")
-                                        else label("${visiblePois.size} places found", "Найдено объектов: ${visiblePois.size}"),
-                                        modifier = Modifier.weight(1f),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                    TextButton(onClick = { mapView?.let { mapCenter = LatLng(it.mapCenter.latitude, it.mapCenter.longitude) }; poiRefreshKey++ }) { Text(label("Search area", "Искать здесь")) }
-                                }
-                                Text(
-                                    label(
-                                        "© OpenStreetMap contributors. Coverage varies by area; live parking availability and fuel prices are not included.",
-                                        "© OpenStreetMap contributors. Покрытие зависит от района; наличие свободных мест и актуальные цены на топливо не предоставляются."
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
                             }
                         }
                     }
