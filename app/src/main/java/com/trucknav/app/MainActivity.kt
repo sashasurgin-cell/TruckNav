@@ -455,7 +455,7 @@ private fun TruckNavApp() {
                                         Text(if (routeLoading) label("Calculating…", "Рассчитываем…") else label("Calculate truck route", "Рассчитать грузовой маршрут"))
                                     }
                                     if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Text(label("HERE truck routing uses entered height, width, length, gross weight and axle count. It is not a guarantee of legal clearance.", "HERE учитывает высоту, ширину, длину, общий вес и число осей. Это не гарантия юридической проходимости маршрута."), style = MaterialTheme.typography.bodySmall)
+                                    Text(label("Truck-safe routing is not enabled yet. The app will not show a car route as if it were safe for a truck.", "Грузовая маршрутизация пока не подключена. Приложение не будет выдавать легковой маршрут за безопасный для грузовика."), style = MaterialTheme.typography.bodySmall)
                                 }
                                 AppTab.POI -> {
                                     Text(label("Truck points of interest", "Грузовые объекты (POI)"), style = MaterialTheme.typography.titleLarge)
