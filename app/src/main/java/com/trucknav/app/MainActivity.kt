@@ -1,29 +1,61 @@
 package com.trucknav.app
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.LocalGasStation
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.rememberCameraPositionState
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -33,95 +65,268 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class TruckNavTab { MAP, ROUTE, SERVICES, SAVED, VEHICLE }
+
 @Composable
 private fun TruckNavApp() {
+    val context = LocalContext.current
     var russian by remember { mutableStateOf(Locale.getDefault().language == "ru") }
+    var truckMode by remember { mutableStateOf(false) }
     var vehicle by remember { mutableStateOf("Cargo van") }
-    var height by remember { mutableStateOf("9.5") }
-    var width by remember { mutableStateOf("6.8") }
-    var length by remember { mutableStateOf("20") }
-    var weight by remember { mutableStateOf("10000") }
     var destination by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
+    var selectedTab by remember { mutableStateOf(TruckNavTab.MAP) }
+    var showVehicleSettings by remember { mutableStateOf(false) }
 
-    val title = if (russian) "TruckNav" else "TruckNav"
-    val subtitle = if (russian) "Навигация для коммерческого транспорта" else "Commercial vehicle navigation"
-    val vehicleLabel = if (russian) "Тип автомобиля" else "Vehicle type"
-    val destinationLabel = if (russian) "Куда едем?" else "Destination"
-    val dimensions = if (russian) "Параметры автомобиля (футы / фунты)" else "Vehicle dimensions (feet / pounds)"
-    val heightLabel = if (russian) "Высота" else "Height"
-    val widthLabel = if (russian) "Ширина" else "Width"
-    val lengthLabel = if (russian) "Длина" else "Length"
-    val weightLabel = if (russian) "Полный вес" else "Gross weight"
-    val buildRoute = if (russian) "Построить маршрут" else "Build route"
-    val note = if (russian) "Начальная версия: маршрутная карта и расчёт грузового маршрута ещё не подключены." else "Starter version: map routing and truck restrictions are not connected yet."
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasLocationPermission =
+            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    }
+
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(LatLng(41.8781, -87.6298), 10.5f)
+    }
+
+    val vehicleNames = if (russian) {
+        listOf("Грузовой фургон", "Пикап + прицеп", "Бокc-трак", "Седельный тягач")
+    } else {
+        listOf("Cargo van", "Pickup + trailer", "Box truck", "Semi truck")
+    }
+    val selectedVehicleName = when (vehicle) {
+        "Pickup + trailer" -> vehicleNames[1]
+        "Box truck" -> vehicleNames[2]
+        "Semi truck" -> vehicleNames[3]
+        else -> vehicleNames[0]
+    }
 
     MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.headlineLarge)
-                        Text(subtitle, style = MaterialTheme.typography.bodyMedium)
-                    }
-                    TextButton(onClick = { russian = !russian }) {
-                        Text(if (russian) "EN" else "RU")
-                    }
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == TruckNavTab.MAP,
+                        onClick = { selectedTab = TruckNavTab.MAP; showVehicleSettings = false },
+                        icon = { Icon(Icons.Default.Map, contentDescription = null) },
+                        label = { Text(if (russian) "Карта" else "Map") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == TruckNavTab.ROUTE,
+                        onClick = { selectedTab = TruckNavTab.ROUTE; showVehicleSettings = false },
+                        icon = { Icon(Icons.Default.Route, contentDescription = null) },
+                        label = { Text(if (russian) "Маршрут" else "Route") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == TruckNavTab.SERVICES,
+                        onClick = { selectedTab = TruckNavTab.SERVICES; showVehicleSettings = false },
+                        icon = { Icon(Icons.Default.LocalGasStation, contentDescription = null) },
+                        label = { Text(if (russian) "Сервисы" else "Services") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == TruckNavTab.SAVED,
+                        onClick = { selectedTab = TruckNavTab.SAVED; showVehicleSettings = false },
+                        icon = { Icon(Icons.Default.Bookmark, contentDescription = null) },
+                        label = { Text(if (russian) "Избранное" else "Saved") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == TruckNavTab.VEHICLE,
+                        onClick = { selectedTab = TruckNavTab.VEHICLE; showVehicleSettings = true },
+                        icon = {
+                            Icon(
+                                if (truckMode) Icons.Default.LocalShipping else Icons.Default.DirectionsCar,
+                                contentDescription = null
+                            )
+                        },
+                        label = { Text(if (russian) "Транспорт" else "Vehicle") }
+                    )
                 }
+            }
+        ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                GoogleMap(
+                    modifier = Modifier.fillMaxSize(),
+                    cameraPositionState = cameraPositionState,
+                    properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
+                    uiSettings = MapUiSettings(
+                        zoomControlsEnabled = false,
+                        myLocationButtonEnabled = hasLocationPermission,
+                        compassEnabled = true,
+                        mapToolbarEnabled = false
+                    )
+                )
 
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(vehicleLabel, style = MaterialTheme.typography.titleMedium)
-                        listOf("Cargo van", "Pickup + trailer", "Box truck", "Semi truck").forEach { option ->
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (russian) when (option) {
-                                    "Cargo van" -> "Грузовой фургон"
-                                    "Pickup + trailer" -> "Пикап с прицепом"
-                                    "Box truck" -> "Бокc-трак"
-                                    else -> "Седельный тягач"
-                                } else option)
-                                TextButton(onClick = { vehicle = option }) {
-                                    Text(if (vehicle == option) "✓" else if (russian) "Выбрать" else "Select")
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("TruckNav", style = MaterialTheme.typography.headlineSmall)
+                                    Text(
+                                        if (russian) "Навигация для США" else "Navigation for the USA",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                TextButton(onClick = { russian = !russian }) {
+                                    Text(if (russian) "EN" else "RU")
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = !truckMode,
+                                    onClick = { truckMode = false; message = "" },
+                                    label = { Text(if (russian) "Легковой" else "Car") },
+                                    leadingIcon = { Icon(Icons.Default.DirectionsCar, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                )
+                                FilterChip(
+                                    selected = truckMode,
+                                    onClick = { truckMode = true; message = "" },
+                                    label = { Text(if (russian) "Грузовой" else "Truck") },
+                                    leadingIcon = { Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = destination,
+                                    onValueChange = { destination = it },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                    placeholder = { Text(if (russian) "Куда едем?" else "Where to?") }
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (destination.isBlank()) {
+                                            message = if (russian) "Сначала введи адрес назначения." else "Enter a destination first."
+                                        } else if (truckMode) {
+                                            message = if (russian) {
+                                                "Грузовая маршрутизация ещё подключается. Не используй автомобильный маршрут для грузовика."
+                                            } else {
+                                                "Truck routing is not connected yet. Do not use a car route for a truck."
+                                            }
+                                        } else {
+                                            val uri = Uri.parse("google.navigation:q=${Uri.encode(destination)}")
+                                            val intent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps")
+                                            try {
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(destination)}"))
+                                                context.startActivity(fallback)
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Route, contentDescription = if (russian) "Построить маршрут" else "Build route")
                                 }
                             }
                         }
                     }
-                }
 
-                Text(dimensions, style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = height, onValueChange = { height = it }, label = { Text(heightLabel) }, modifier = Modifier.weight(1f), singleLine = true)
-                    OutlinedTextField(value = width, onValueChange = { width = it }, label = { Text(widthLabel) }, modifier = Modifier.weight(1f), singleLine = true)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = length, onValueChange = { length = it }, label = { Text(lengthLabel) }, modifier = Modifier.weight(1f), singleLine = true)
-                    OutlinedTextField(value = weight, onValueChange = { weight = it }, label = { Text(weightLabel) }, modifier = Modifier.weight(1f), singleLine = true)
-                }
-
-                OutlinedTextField(
-                    value = destination,
-                    onValueChange = { destination = it },
-                    label = { Text(destinationLabel) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Button(onClick = {
-                    message = if (russian) {
-                        "Параметры сохранены для профиля: $vehicle. Для маршрутизации требуется подключить карты и грузовой routing engine."
-                    } else {
-                        "Settings saved for profile: $vehicle. Maps and a truck routing engine are needed for navigation."
+                    if (!hasLocationPermission) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.MyLocation, contentDescription = null)
+                                Text(
+                                    if (russian) "Разреши доступ к местоположению для GPS." else "Allow location access to use GPS.",
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                TextButton(onClick = {
+                                    locationPermissionLauncher.launch(
+                                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                                    )
+                                }) {
+                                    Text(if (russian) "Разрешить" else "Allow")
+                                }
+                            }
+                        }
                     }
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text(buildRoute)
+
+                    if (message.isNotBlank()) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Text(message, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
-                if (message.isNotBlank()) {
-                    Text(message, style = MaterialTheme.typography.bodyMedium)
+
+                if (selectedTab != TruckNavTab.MAP || showVehicleSettings) {
+                    Card(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            when (selectedTab) {
+                                TruckNavTab.ROUTE -> {
+                                    Text(if (russian) "Маршрут" else "Route", style = MaterialTheme.typography.titleLarge)
+                                    Text(if (russian) "Введи пункт назначения в строке поиска сверху. Для легкового режима маршрут откроется в Google Maps." else "Enter a destination above. In Car mode, directions open in Google Maps.")
+                                }
+                                TruckNavTab.SERVICES -> {
+                                    Text(if (russian) "Сервисы для водителя" else "Driver services", style = MaterialTheme.typography.titleLarge)
+                                    Text(if (russian) "На следующем этапе подключим парковки грузовиков, весовые станции, заправки и ремонтные сервисы." else "Next we will connect truck parking, weigh stations, fuel stops and repair services.")
+                                }
+                                TruckNavTab.SAVED -> {
+                                    Text(if (russian) "Избранное" else "Saved places", style = MaterialTheme.typography.titleLarge)
+                                    Text(if (russian) "Сохранённые места появятся в следующем обновлении." else "Saved places will be added in a later update.")
+                                }
+                                TruckNavTab.VEHICLE -> {
+                                    Text(if (russian) "Профиль транспорта" else "Vehicle profile", style = MaterialTheme.typography.titleLarge)
+                                    Text(if (russian) "Выбери тип транспорта для будущей грузовой маршрутизации." else "Choose a vehicle type for future truck routing.")
+                                    vehicleNames.forEachIndexed { index, name ->
+                                        val ids = listOf("Cargo van", "Pickup + trailer", "Box truck", "Semi truck")
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(name, modifier = Modifier.weight(1f))
+                                            TextButton(onClick = { vehicle = ids[index]; truckMode = true }) {
+                                                Text(if (vehicle == ids[index]) "✓" else if (russian) "Выбрать" else "Select")
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        if (russian) "Размеры и вес добавим в расширенные настройки профиля." else "Dimensions and weight will be added to advanced profile settings.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                TruckNavTab.MAP -> Unit
+                            }
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
