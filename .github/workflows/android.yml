@@ -38,6 +38,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Set release version from tag
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          VERSION_CODE="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || (echo "Release tag must look like v8, v9, etc." && exit 1)
+          echo "TRUCKNAV_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "TRUCKNAV_VERSION_NAME=0.$VERSION_CODE.0" >> "$GITHUB_ENV"
+
       - name: Configure release signing key
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         env:
