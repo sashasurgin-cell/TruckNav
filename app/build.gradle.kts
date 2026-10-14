@@ -14,10 +14,8 @@ android {
         applicationId = "com.trucknav.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
-        manifestPlaceholders["MAPS_API_KEY"] = providers.gradleProperty("MAPS_API_KEY").orElse("").get()
-        buildConfigField("String", "HERE_API_KEY", "\"${providers.gradleProperty("HERE_API_KEY").orElse("").get()}\"")
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     buildTypes {
@@ -42,7 +40,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("com.google.maps.android:maps-compose:6.1.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
