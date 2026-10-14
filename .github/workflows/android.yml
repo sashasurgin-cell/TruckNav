@@ -38,16 +38,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Set release version from tag
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+      - name: Set release version
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v8]')) }}
         run: |
-          VERSION_CODE="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION_CODE="${GITHUB_REF_NAME#v}"
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          else
+            VERSION_CODE="8"
+            RELEASE_TAG="v8"
+          fi
           [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || (echo "Release tag must look like v8, v9, etc." && exit 1)
           echo "TRUCKNAV_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "TRUCKNAV_VERSION_NAME=0.$VERSION_CODE.0" >> "$GITHUB_ENV"
+          echo "TRUCKNAV_RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Configure release signing key
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v8]')) }}
         env:
           KEYSTORE_BASE64: ${{ secrets.TRUCKNAV_KEYSTORE_BASE64 }}
         run: |
@@ -56,7 +63,7 @@ jobs:
           echo "TRUCKNAV_KEYSTORE_FILE=$RUNNER_TEMP/trucknav-release.jks" >> "$GITHUB_ENV"
 
       - name: Build signed release APK
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v8]')) }}
         env:
           TRUCKNAV_KEYSTORE_PASSWORD: ${{ secrets.TRUCKNAV_KEYSTORE_PASSWORD }}
           TRUCKNAV_KEY_ALIAS: ${{ secrets.TRUCKNAV_KEY_ALIAS }}
@@ -67,14 +74,14 @@ jobs:
           arguments: assembleRelease
 
       - name: Publish APK release
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v8]')) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk --clobber
+          if gh release view "$TRUCKNAV_RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$TRUCKNAV_RELEASE_TAG" app/build/outputs/apk/release/app-release.apk --clobber
           else
-            gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk \
-              --title "TruckNav $GITHUB_REF_NAME" \
+            gh release create "$TRUCKNAV_RELEASE_TAG" app/build/outputs/apk/release/app-release.apk \
+              --title "TruckNav $TRUCKNAV_RELEASE_TAG" \
               --notes "TruckNav update. Download the APK to install or update the app."
           fi
