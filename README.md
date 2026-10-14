@@ -1,58 +1,57 @@
 # TruckNav
 
-TruckNav is an Android truck-navigation project focused on commercial drivers in the contiguous United States. It is **truck-only**: there is no passenger-car mode.
+TruckNav is an Android truck-navigation project for the United States and Canada. It is truck-only and does not provide a passenger-car navigation mode.
 
-## Product direction
+## Free/open-source principles
 
-The product takes inspiration from the workflow of truck-driver apps such as Trucker Path: truck-friendly trip planning, vehicle profiles, and a map organized around truck-driver points of interest (POIs). TruckNav is an independent implementation and does not copy Trucker Path's proprietary code, map tiles, or private POI database.
+- OpenStreetMap map data and the osmdroid map library; no Google Maps API key.
+- Truck-driver POI searches use OpenStreetMap data through Overpass.
+- No paid API key or subscription is required to build or open the current prototype.
+- The app is an independent project and does not copy Trucker Path's proprietary code, tiles, or private POI database.
+- OpenStreetMap attribution and license requirements must be preserved.
 
-## Planned POI categories
+## Current prototype (v0.6.0)
 
-- Truck stops and travel centers
-- Truck parking and parking availability
-- Diesel and DEF fuel
-- Weigh stations and CAT scales
-- Rest areas
-- Truck repair shops and dealerships
-- Truck washes
-- Low-clearance bridges and road restrictions
-- Truck-friendly stores and overnight parking locations where verified
-- Hotels and restaurants
-- Custom locations such as yards, docks, warehouses, and customer entrances
+- Kotlin + Jetpack Compose Android app.
+- OpenStreetMap map centered initially on Chicago.
+- Quick filters for truck parking, weigh stations, fuel/DEF, truck stops, CAT scales, rest areas, repair shops, truck wash, low bridges, Walmart, hotels, and restaurants.
+- POI markers from the public Overpass API.
+- Automatic POI refresh when the selected category/map area changes, plus a periodic refresh every six hours while the app remains open.
+- Russian/English interface toggle.
+- Vehicle profile UI for cargo van, pickup + trailer, box truck, and semi truck.
+- GitHub Actions automatically builds a debug APK artifact on pushes to `main`.
 
-## Current prototype
+## Important: truck routing is not yet implemented
 
-- Android app built with Kotlin and Jetpack Compose
-- OpenStreetMap tile map using osmdroid; no Google Maps API key is required to display the map
-- Quick-access chips for all 12 truck-driver POI categories on the map
-- Initial live POI lookup using the OpenStreetMap Overpass API, with map markers and a manual “Search here” refresh
-- HERE Routing API v8 integration for truck routes using the entered height, width, length, gross weight, and axle count; routes are drawn on the map
-- Russian / English interface toggle
-- Truck-only navigation UI with Map, Trip, POI, Saved, and Truck tabs
-- Initial truck profile fields: vehicle type, height, width, length, weight, and axle count
-- GitHub Actions builds a debug APK and uploads it as an artifact
+This version deliberately does **not** substitute an ordinary car route for a truck route. That would be unsafe because a car-routing engine may not respect truck height, width, weight, axle, hazardous-material, and road restrictions.
 
-## Important limitations
+The next major engineering step is a genuinely open-source truck-routing backend and data pipeline. GraphHopper is one candidate, but its server must be configured and tested with the right truck restrictions and North American data. A production-quality route engine for all of the US and Canada may need significant compute/storage; free source code does not automatically mean free hosting. Until this is implemented and validated, TruckNav must not be used as the sole source for route legality or clearance.
 
-The current build is an early prototype, not yet a production navigation system. POI lookup now queries OpenStreetMap data through the public Overpass API for the selected category near the map center. Coverage depends on community mapping and the public service may be rate-limited or unavailable. Live parking availability, fuel prices, weigh-station status, turn-by-turn voice guidance, and persistent saved profiles are not yet implemented. Truck routing requires a HERE API key configured as the `HERE_API_KEY` GitHub Actions secret. HERE truck routes are best-effort and must not be treated as a guarantee that every restriction or road condition is correct.
+## Automatic data refresh
 
-A map being visible does not mean a route is certified safe or legal for a truck. TruckNav must show the source and freshness of restriction data and clearly warn when routing data is incomplete or uncertain.
+- POIs are fetched from the current OpenStreetMap/Overpass data when the user changes category or moves the map to a new area.
+- The current prototype repeats the POI request every six hours while open.
+- This is not yet a persistent local database sync: results are not yet cached for offline use, and background refresh after the app is closed is not implemented.
+- Overpass is a shared public service and may rate-limit requests. For a wider release, use a self-managed or explicitly permitted data pipeline and obey the source's usage policies.
+- OSM coverage varies. Parking availability, fuel prices, weigh-station open/closed status, and community reports are not currently live features.
 
-## Data and services strategy
+## Build an APK
 
-Use licensed APIs and/or legally reusable datasets for road routing and POIs. Do not scrape or copy Trucker Path's private map or proprietary POI database. Any commercial provider will require review of its coverage, license, pricing, rate limits, and permitted display/use.
+1. Open this repository's **Actions** tab on GitHub.
+2. Select the latest **Build TruckNav APK** workflow run.
+3. After a successful run, download the `TruckNav-debug-apk` artifact.
+4. Extract the ZIP to obtain `app-debug.apk`, then transfer it to your Android device and install it.
 
-The map layer uses OpenStreetMap tiles and POI markers are queried from OpenStreetMap contributors via Overpass. The HERE Routing API v8 integration uses `transportMode=truck` and the vehicle dimensions/weight fields. Both the road-restriction data and POI coverage can be incomplete; routes must not be represented as guaranteed safe or legal for every truck.
+The APK artifact is retained for 14 days.
 
-## Build
+## Open data and licensing
 
-Pushes to `main` trigger the GitHub Actions workflow. Open the repository's **Actions** tab, select the latest successful run, and download the `TruckNav-debug-apk` artifact.
+OpenStreetMap data is available under the Open Database License (ODbL); attribution is required. osmdroid and other dependencies retain their own licenses. Review licenses and tile-service policies before public distribution.
 
-## HERE routing setup
+## Roadmap
 
-1. Create a HERE platform account and an API key with access to Routing API v8 and Geocoding & Search.
-2. In GitHub, open **Settings → Secrets and variables → Actions → New repository secret**.
-3. Set the secret name to `HERE_API_KEY` and paste the key as its value.
-4. Run the **Build TruckNav APK** workflow again from the Actions tab.
-
-The map itself does not require this key. Without the secret, the map and POI view can work, but route calculation will show a setup message.
+1. Verify Android build and map rendering.
+2. Add persistent POI cache and safe refresh/retry behavior.
+3. Add free/open geocoding for US and Canadian addresses.
+4. Integrate and test a self-hosted open-source truck-routing engine with configurable dimensions/weight/axles.
+5. Add multi-stop routes, spoken turn instructions, route warnings, and user-contributed reports.
