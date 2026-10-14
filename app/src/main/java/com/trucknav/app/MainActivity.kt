@@ -32,18 +32,22 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -186,6 +190,12 @@ private fun TruckNavApp() {
     var destination by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf("") }
     var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    val settingsPrefs = remember { context.getSharedPreferences("trucknav_settings", android.content.Context.MODE_PRIVATE) }
+    var avoidTolls by remember { mutableStateOf(settingsPrefs.getBoolean("avoid_tolls", false)) }
+    var avoidFerries by remember { mutableStateOf(settingsPrefs.getBoolean("avoid_ferries", false)) }
+    var avoidHighways by remember { mutableStateOf(settingsPrefs.getBoolean("avoid_highways", false)) }
+    var avoidUnpaved by remember { mutableStateOf(settingsPrefs.getBoolean("avoid_unpaved", true)) }
     var selectedPoi by remember { mutableStateOf("Truck stops") }
     var visiblePois by remember { mutableStateOf(emptyList<TruckPoi>()) }
     var poiLoading by remember { mutableStateOf(false) }
@@ -355,14 +365,25 @@ private fun TruckNavApp() {
                                         Text("TruckNav", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                         Text(label("Truck map", "Грузовая карта"), style = MaterialTheme.typography.bodySmall)
                                     }
-                                    if (availableUpdate != null) {
-                                        TextButton(onClick = {
-                                            runCatching {
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(availableUpdate!!.apkUrl)))
+                                    TextButton(onClick = {
+                                        coroutineScope.launch {
+                                            val update = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
+                                            availableUpdate = update
+                                            if (update != null) {
+                                                runCatching {
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.apkUrl)))
+                                                }.onFailure {
+                                                    android.widget.Toast.makeText(context, label("Could not open APK download", "Не удалось открыть загрузку APK"), android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                android.widget.Toast.makeText(context, label("TruckNav is up to date", "Установлена последняя версия TruckNav"), android.widget.Toast.LENGTH_SHORT).show()
                                             }
-                                        }) { Text(label("Update", "Обновить")) }
-                                    }
+                                        }
+                                    }) { Text(if (availableUpdate != null) label("Update", "Обновить") else label("Check", "Проверить")) }
                                     TextButton(onClick = { russian = !russian }) { Text(if (russian) "EN" else "RU") }
+                                    IconButton(onClick = { settingsOpen = true }) {
+                                        Icon(Icons.Default.Settings, contentDescription = label("Settings", "Настройки"))
+                                    }
                                     TextButton(onClick = { routePanelExpanded = !routePanelExpanded; poiPanelExpanded = false }) {
                                         Icon(Icons.Default.Route, contentDescription = null)
                                         Text(if (routePanelExpanded) "  −" else "  +")
@@ -523,6 +544,61 @@ private fun TruckNavApp() {
                     }
                 }
             }
+        }
+        if (settingsOpen) {
+            AlertDialog(
+                onDismissRequest = { settingsOpen = false },
+                title = { Text(label("App settings", "Настройки приложения")) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            label("Route preferences", "Предпочтения маршрута"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(label("Avoid toll roads", "Избегать платных дорог"), modifier = Modifier.weight(1f))
+                            Switch(checked = avoidTolls, onCheckedChange = {
+                                avoidTolls = it
+                                settingsPrefs.edit().putBoolean("avoid_tolls", it).apply()
+                            })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(label("Avoid ferries", "Избегать паромов"), modifier = Modifier.weight(1f))
+                            Switch(checked = avoidFerries, onCheckedChange = {
+                                avoidFerries = it
+                                settingsPrefs.edit().putBoolean("avoid_ferries", it).apply()
+                            })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(label("Avoid highways", "Избегать хайвеев"), modifier = Modifier.weight(1f))
+                            Switch(checked = avoidHighways, onCheckedChange = {
+                                avoidHighways = it
+                                settingsPrefs.edit().putBoolean("avoid_highways", it).apply()
+                            })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(label("Avoid unpaved roads", "Избегать грунтовых дорог"), modifier = Modifier.weight(1f))
+                            Switch(checked = avoidUnpaved, onCheckedChange = {
+                                avoidUnpaved = it
+                                settingsPrefs.edit().putBoolean("avoid_unpaved", it).apply()
+                            })
+                        }
+                        Text(
+                            label(
+                                "These preferences are saved on this device. They will affect route calculation after the truck-routing engine is connected.",
+                                "Настройки сохраняются на этом устройстве. На расчёт маршрута они начнут влиять после подключения движка грузовой навигации."
+                            ),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { settingsOpen = false }) {
+                        Text(label("Done", "Готово"))
+                    }
+                }
+            )
         }
     }
 }
