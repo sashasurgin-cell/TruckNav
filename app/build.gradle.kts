@@ -14,8 +14,9 @@ android {
         applicationId = "com.trucknav.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.7.0"
+        // Release tags use v8, v9, ...; CI passes the numeric code through the environment.
+        versionCode = (System.getenv("TRUCKNAV_VERSION_CODE") ?: "7").toInt()
+        versionName = System.getenv("TRUCKNAV_VERSION_NAME") ?: "0.7.0"
     }
 
     signingConfigs {
