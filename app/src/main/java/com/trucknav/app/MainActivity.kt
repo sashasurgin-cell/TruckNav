@@ -423,6 +423,7 @@ private fun TruckNavApp() {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
+                        Configuration.getInstance().load(ctx, android.preference.PreferenceManager.getDefaultSharedPreferences(ctx))
                         Configuration.getInstance().userAgentValue = ctx.packageName
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
