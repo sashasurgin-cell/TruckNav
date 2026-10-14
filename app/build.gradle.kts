@@ -18,9 +18,19 @@ android {
         versionName = "0.7.0"
     }
 
+    signingConfigs {
+        create("trucknavRelease") {
+            storeFile = file(System.getenv("TRUCKNAV_KEYSTORE_FILE") ?: "missing-keystore.jks")
+            storePassword = System.getenv("TRUCKNAV_KEYSTORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("TRUCKNAV_KEY_ALIAS") ?: ""
+            keyPassword = System.getenv("TRUCKNAV_KEY_PASSWORD") ?: ""
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("trucknavRelease")
         }
     }
 
