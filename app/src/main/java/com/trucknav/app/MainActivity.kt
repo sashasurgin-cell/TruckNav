@@ -960,16 +960,6 @@ private fun TruckNavApp() {
                                     return true
                                 }
                             })
-                            addMapListener(object : MapListener {
-                                override fun onScroll(event: ScrollEvent?): Boolean {
-                                    mapCenter = LatLng(osmMap.mapCenter.latitude, osmMap.mapCenter.longitude)
-                                    return true
-                                }
-                                override fun onZoom(event: ZoomEvent?): Boolean {
-                                    mapCenter = LatLng(osmMap.mapCenter.latitude, osmMap.mapCenter.longitude)
-                                    return true
-                                }
-                            })
                             mapView = this
                         }
                     },
