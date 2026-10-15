@@ -546,14 +546,14 @@ private fun parseClearanceFeet(raw: String): Double? {
     val value = raw.trim().substringBefore("@").trim()
     if (value.isBlank() || value.equals("none", true) || value.equals("unknown", true)) return null
 
-    val feetInches = Regex("""([0-9]+(?:\\.[0-9]+)?)\\s*'\\s*([0-9]+(?:\\.[0-9]+)?)?\\s*"?""").find(value)
+    val feetInches = Regex("""([0-9]+(?:\.[0-9]+)?)\s*'\s*([0-9]+(?:\.[0-9]+)?)?\s*"?""").find(value)
     if (feetInches != null) {
         val feet = feetInches.groupValues[1].toDoubleOrNull() ?: return null
         val inches = feetInches.groupValues[2].toDoubleOrNull() ?: 0.0
         return feet + inches / 12.0
     }
 
-    val words = Regex("""([0-9]+(?:\\.[0-9]+)?)\\s*(feet|foot|ft|inches|inch|in|meters|metres|meter|metre|m|cm)\\b""", RegexOption.IGNORE_CASE).find(value)
+    val words = Regex("""([0-9]+(?:\.[0-9]+)?)\s*(feet|foot|ft|inches|inch|in|meters|metres|meter|metre|m|cm)\b""", RegexOption.IGNORE_CASE).find(value)
     if (words != null) {
         val number = words.groupValues[1].toDoubleOrNull() ?: return null
         return when (words.groupValues[2].lowercase(Locale.US)) {
@@ -564,7 +564,7 @@ private fun parseClearanceFeet(raw: String): Double? {
         }
     }
     // OSM maxheight values without an explicit unit are metres.
-    val numeric = Regex("""^([0-9]+(?:\\.[0-9]+)?)$""").matchEntire(value)?.groupValues?.get(1)?.toDoubleOrNull()
+    val numeric = Regex("""^([0-9]+(?:\.[0-9]+)?)$""").matchEntire(value)?.groupValues?.get(1)?.toDoubleOrNull()
     return numeric?.takeIf { it > 0.0 }?.times(3.280839895)
 }
 
@@ -621,7 +621,7 @@ private suspend fun checkClearanceAlongRoute(
                 clearance < truckHeightFeet + 0.5 -> {
                     val feet = clearance.toInt()
                     val inches = ((clearance - feet) * 12).toInt().coerceIn(0, 11)
-                    "LOW: ${poi.name} — about ${feet}'${inches}\\" clearance vs truck ${truckHeightFeet} ft (${distanceLabel} from route)"
+                    "LOW: ${poi.name} — about ${feet} ft ${inches} in clearance vs truck ${truckHeightFeet} ft (${distanceLabel} from route)"
                 }
                 clearance < truckHeightFeet + 1.0 -> "CAUTION: ${poi.name} — only about ${"%.1f".format(Locale.US, clearance - truckHeightFeet)} ft margin (${distanceLabel} from route)"
                 else -> null
