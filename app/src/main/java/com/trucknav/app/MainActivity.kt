@@ -1065,7 +1065,7 @@ private fun TruckNavApp() {
                                 AppTab.MAP -> {
                                     routeClearanceWarnings?.let { warnings ->
                                         Card(
-                                            colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFFFF0D8)),
+                                            colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -1095,7 +1095,7 @@ private fun TruckNavApp() {
                                     if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     routeClearanceWarnings?.let { warnings ->
                                         Card(
-                                            colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFFFF0D8)),
+                                            colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
