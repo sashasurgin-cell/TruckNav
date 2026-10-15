@@ -1062,7 +1062,24 @@ private fun TruckNavApp() {
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             when (selectedTab) {
-                                AppTab.MAP -> Unit
+                                AppTab.MAP -> {
+                                    routeClearanceWarnings?.let { warnings ->
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFFFF0D8)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                                Text(
+                                                    if (warnings.isEmpty()) label("Low-clearance check: no known conflicts found", "Проверка высоты: известных конфликтов не найдено") else label("Low-clearance warnings", "Предупреждения по высоте"),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                warnings.take(4).forEach { warning -> Text("⚠ $warning", style = MaterialTheme.typography.bodySmall) }
+                                                if (warnings.size > 4) Text(label("Open Trip for more warnings.", "Открой вкладку «Маршрут» для остальных предупреждений."), style = MaterialTheme.typography.bodySmall)
+                                                Text(label("Incomplete data — follow posted signs.", "Данные неполные — соблюдай дорожные знаки."), style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                }
                                 AppTab.ROUTE -> {
                                     Text(label("Truck trip planner", "Планировщик грузового маршрута"), style = MaterialTheme.typography.titleLarge)
                                     OutlinedTextField(
