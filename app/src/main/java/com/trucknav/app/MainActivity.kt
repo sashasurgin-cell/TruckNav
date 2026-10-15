@@ -541,6 +541,95 @@ private suspend fun loadNationalLowClearancePois(
         .toList()
 }
 
+
+private fun parseClearanceFeet(raw: String): Double? {
+    val value = raw.trim().substringBefore("@").trim()
+    if (value.isBlank() || value.equals("none", true) || value.equals("unknown", true)) return null
+
+    val feetInches = Regex("""([0-9]+(?:\\.[0-9]+)?)\\s*'\\s*([0-9]+(?:\\.[0-9]+)?)?\\s*"?""").find(value)
+    if (feetInches != null) {
+        val feet = feetInches.groupValues[1].toDoubleOrNull() ?: return null
+        val inches = feetInches.groupValues[2].toDoubleOrNull() ?: 0.0
+        return feet + inches / 12.0
+    }
+
+    val words = Regex("""([0-9]+(?:\\.[0-9]+)?)\\s*(feet|foot|ft|inches|inch|in|meters|metres|meter|metre|m|cm)\\b""", RegexOption.IGNORE_CASE).find(value)
+    if (words != null) {
+        val number = words.groupValues[1].toDoubleOrNull() ?: return null
+        return when (words.groupValues[2].lowercase(Locale.US)) {
+            "feet", "foot", "ft" -> number
+            "inches", "inch", "in" -> number / 12.0
+            "cm" -> number / 30.48
+            else -> number * 3.280839895
+        }
+    }
+    // OSM maxheight values without an explicit unit are metres.
+    val numeric = Regex("""^([0-9]+(?:\\.[0-9]+)?)$""").matchEntire(value)?.groupValues?.get(1)?.toDoubleOrNull()
+    return numeric?.takeIf { it > 0.0 }?.times(3.280839895)
+}
+
+private suspend fun checkClearanceAlongRoute(
+    context: android.content.Context,
+    route: List<GeoPoint>,
+    truckHeightFeet: Double
+): List<String>? {
+    if (route.size < 2) return emptyList()
+    loadNationalLowClearancePois(context, LatLng(route.first().latitude, route.first().longitude))
+    val all = nationwideLowClearanceCache ?: return null
+    return withContext(Dispatchers.Default) {
+        val minLat = route.minOf { it.latitude } - 0.003
+        val maxLat = route.maxOf { it.latitude } + 0.003
+        val minLon = route.minOf { it.longitude } - 0.004
+        val maxLon = route.maxOf { it.longitude } + 0.004
+
+        fun distanceToRouteMeters(lat: Double, lon: Double): Double {
+            val cosLat = kotlin.math.cos(Math.toRadians(lat))
+            val px = lon * 111320.0 * cosLat
+            val py = lat * 110540.0
+            var best = Double.MAX_VALUE
+            for (i in 0 until route.size - 1) {
+                val a = route[i]
+                val b = route[i + 1]
+                val ax = a.longitude * 111320.0 * cosLat
+                val ay = a.latitude * 110540.0
+                val bx = b.longitude * 111320.0 * cosLat
+                val by = b.latitude * 110540.0
+                val dx = bx - ax
+                val dy = by - ay
+                val denominator = dx * dx + dy * dy
+                val t = if (denominator <= 0.0001) 0.0 else (((px - ax) * dx + (py - ay) * dy) / denominator).coerceIn(0.0, 1.0)
+                val distance = kotlin.math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+                if (distance < best) best = distance
+                if (best <= 25.0) break
+            }
+            return best
+        }
+
+        val nearRoute = all.asSequence()
+            .filter { it.latitude in minLat..maxLat && it.longitude in minLon..maxLon }
+            .map { poi -> poi to distanceToRouteMeters(poi.latitude, poi.longitude) }
+            .filter { it.second <= 150.0 }
+            .sortedBy { it.second }
+            .toList()
+
+        nearRoute.mapNotNull { (poi, distance) ->
+            val raw = poi.details.substringAfter("Clearance:", "").trim()
+            val clearance = parseClearanceFeet(raw)
+            val distanceLabel = "${distance.toInt()} m"
+            when {
+                clearance == null -> "UNKNOWN: ${poi.name} — clearance not verified (${distanceLabel} from route)"
+                clearance < truckHeightFeet + 0.5 -> {
+                    val feet = clearance.toInt()
+                    val inches = ((clearance - feet) * 12).toInt().coerceIn(0, 11)
+                    "LOW: ${poi.name} — about ${feet}'${inches}\\" clearance vs truck ${truckHeightFeet} ft (${distanceLabel} from route)"
+                }
+                clearance < truckHeightFeet + 1.0 -> "CAUTION: ${poi.name} — only about ${"%.1f".format(Locale.US, clearance - truckHeightFeet)} ft margin (${distanceLabel} from route)"
+                else -> null
+            }
+        }.distinct().take(8)
+    }
+}
+
 @Composable
 private fun TruckNavApp() {
     val context = LocalContext.current
@@ -565,6 +654,7 @@ private fun TruckNavApp() {
     var routeLoading by remember { mutableStateOf(false) }
     var routeSummary by remember { mutableStateOf("") }
     var routeInstructions by remember { mutableStateOf(emptyList<String>()) }
+    var routeClearanceWarnings by remember { mutableStateOf<List<String>?>(null) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -710,6 +800,7 @@ private fun TruckNavApp() {
         routePoints = emptyList()
         routeSummary = ""
         routeInstructions = emptyList()
+        routeClearanceWarnings = null
         coroutineScope.launch {
             try {
                 statusMessage = label("Finding destination…", "Ищу пункт назначения…")
@@ -736,9 +827,16 @@ private fun TruckNavApp() {
                 routePoints = result.first
                 routeSummary = result.second
                 routeInstructions = result.third
+                statusMessage = label("Checking known low-clearance restrictions along route…", "Проверяю известные ограничения высоты вдоль маршрута…")
+                routeClearanceWarnings = checkClearanceAlongRoute(context, result.first, parsedHeight)
                 mapView?.controller?.setCenter(GeoPoint(start.latitude, start.longitude))
                 mapView?.controller?.setZoom(7.0)
-                statusMessage = label("Truck route calculated with Valhalla truck costing and your vehicle profile. Map restrictions may be incomplete; verify posted limits.", "Грузовой маршрут рассчитан Valhalla с учётом профиля автомобиля. Данные об ограничениях могут быть неполными — проверяй дорожные знаки.")
+                val warnings = routeClearanceWarnings
+                statusMessage = when {
+                    warnings == null -> label("Route calculated, but nationwide clearance data could not be loaded. Verify all posted signs.", "Маршрут построен, но национальную базу габаритов загрузить не удалось. Проверяй все дорожные знаки.")
+                    warnings.isEmpty() -> label("No known low-clearance warnings found near this route. This does NOT guarantee every bridge is safe; verify posted signs.", "В базе не найдено известных предупреждений о низких мостах вдоль маршрута. Это НЕ гарантирует безопасный проезд каждого моста — проверяй дорожные знаки.")
+                    else -> label("Route check found ${warnings.size} potential clearance warning(s). Review the list and verify posted signs.", "Проверка маршрута нашла предупреждения по высоте: ${warnings.size}. Посмотри список и обязательно сверяйся с дорожными знаками.")
+                }
                 selectedTab = AppTab.MAP
             } catch (_: Exception) {
                 statusMessage = label("Route calculation failed. Please try again.", "Не удалось рассчитать маршрут. Попробуй ещё раз.")
@@ -978,6 +1076,21 @@ private fun TruckNavApp() {
                                         Text(if (routeLoading) label("Calculating…", "Рассчитываем…") else label("Calculate truck route", "Рассчитать грузовой маршрут"))
                                     }
                                     if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    routeClearanceWarnings?.let { warnings ->
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFFFF0D8)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(
+                                                    if (warnings.isEmpty()) label("Low-clearance check: no known conflicts found", "Проверка высоты: известных конфликтов не найдено") else label("Low-clearance warnings", "Предупреждения по высоте"),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                warnings.forEach { warning -> Text("⚠ $warning", style = MaterialTheme.typography.bodySmall) }
+                                                Text(label("Data is incomplete; warnings are advisory only. Follow posted signs.", "База неполная; предупреждения носят справочный характер. Соблюдай дорожные знаки."), style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
                                     if (routeInstructions.isNotEmpty()) {
                                         Text(label("Turn-by-turn directions", "Повороты по маршруту"), fontWeight = FontWeight.SemiBold)
                                         routeInstructions.take(14).forEachIndexed { index, instruction ->
