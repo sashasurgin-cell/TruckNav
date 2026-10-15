@@ -22,6 +22,8 @@ OSM coverage is crowd-sourced and incomplete. A missing OSM restriction does **n
 - [x] Show an explicit warning when the height is unknown.
 - [ ] Build and host a versioned nationwide offline snapshot with source timestamp and OSM attribution.
 - [ ] Merge and deduplicate state DOT clearance datasets where redistribution terms allow.
-- [ ] Connect a verified nationwide snapshot to route checks and audible warnings.
+- [x] Check the calculated route against the current nationwide OSM snapshot and list nearby known low-clearance restrictions.
+- [ ] Add audible alerts for upcoming restrictions during active navigation.
+- [ ] Merge and validate official state DOT datasets; current OSM coverage is not comprehensive.
 
 Do not advertise the current app data as a complete national database and do not use it as the sole authority for clearance decisions. Before driving, follow posted signs and official restrictions.
