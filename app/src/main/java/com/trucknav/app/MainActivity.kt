@@ -17,6 +17,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -659,7 +660,13 @@ private fun TruckNavApp() {
     var routeClearanceWarnings by remember { mutableStateOf<List<String>?>(null) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var selectedMapPoint by remember { mutableStateOf<LatLng?>(null) }
+    var isNavigating by remember { mutableStateOf(false) }
+    var currentInstructionIndex by remember { mutableStateOf(0) }
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
+    val speechEngine = remember(context) { TextToSpeech(context) { } }
+    androidx.compose.runtime.DisposableEffect(speechEngine) {
+        onDispose { speechEngine.stop(); speechEngine.shutdown() }
+    }
     val coroutineScope = rememberCoroutineScope()
     var updateInProgress by remember { mutableStateOf(false) }
     var pendingInstallUri by remember { mutableStateOf<Uri?>(null) }
@@ -757,6 +764,35 @@ private fun TruckNavApp() {
         onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
     }
 
+    LaunchedEffect(currentLocation, isNavigating, routePoints, routeInstructions) {
+        if (!isNavigating) return@LaunchedEffect
+        val location = currentLocation ?: return@LaunchedEffect
+        if (routePoints.size < 2) return@LaunchedEffect
+        mapView?.controller?.animateTo(GeoPoint(location.latitude, location.longitude))
+        mapView?.controller?.setZoom(17.0)
+        // Fallback progress estimate based on the closest route point. Turn timing is approximate.
+        var closestIndex = 0
+        var closestDistance = Double.MAX_VALUE
+        routePoints.forEachIndexed { index, point ->
+            val dLat = point.latitude - location.latitude
+            val dLon = (point.longitude - location.longitude) * kotlin.math.cos(Math.toRadians(location.latitude))
+            val distance = dLat * dLat + dLon * dLon
+            if (distance < closestDistance) {
+                closestDistance = distance
+                closestIndex = index
+            }
+        }
+        if (routeInstructions.isNotEmpty()) {
+            val estimated = ((closestIndex.toDouble() / (routePoints.size - 1)) * routeInstructions.size)
+                .toInt().coerceIn(0, routeInstructions.lastIndex)
+            if (estimated > currentInstructionIndex) {
+                currentInstructionIndex = estimated
+                speechEngine.language = if (russian) Locale("ru", "RU") else Locale.US
+                speechEngine.speak(routeInstructions[estimated], TextToSpeech.QUEUE_FLUSH, null, "trucknav-turn-$estimated")
+            }
+        }
+    }
+
     // Refresh POIs automatically when the selected category or map area changes.
     // A 0.1-degree grid avoids firing a request for every tiny map gesture.
     LaunchedEffect(
@@ -787,6 +823,41 @@ private fun TruckNavApp() {
 
 
     fun label(en: String, ru: String) = if (russian) ru else en
+
+    fun startNavigation() {
+        if (routePoints.size < 2) {
+            statusMessage = label("Calculate a route first.", "Сначала построй маршрут.")
+            return
+        }
+        if (currentLocation == null) {
+            statusMessage = label("Waiting for GPS location.", "Ожидаю GPS.")
+            if (!hasLocationPermission) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+        isNavigating = true
+        currentInstructionIndex = 0
+        selectedTab = AppTab.MAP
+        mapView?.controller?.setZoom(17.0)
+        mapView?.controller?.animateTo(GeoPoint(currentLocation!!.latitude, currentLocation!!.longitude))
+        if (routeInstructions.isNotEmpty()) {
+            speechEngine.language = if (russian) Locale("ru", "RU") else Locale.US
+            speechEngine.speak(routeInstructions.first(), TextToSpeech.QUEUE_FLUSH, null, "trucknav-start")
+        }
+        statusMessage = label("Navigation started. Follow road signs; height data is incomplete.", "Навигация запущена. Соблюдай дорожные знаки: база ограничений высоты неполная.")
+    }
+
+    fun cancelNavigation() {
+        isNavigating = false
+        currentInstructionIndex = 0
+        speechEngine.stop()
+        routePoints = emptyList()
+        routeSummary = ""
+        routeInstructions = emptyList()
+        routeClearanceWarnings = null
+        selectedMapPoint = null
+        destination = ""
+        statusMessage = label("Navigation cancelled.", "Навигация отменена.")
+    }
 
     fun calculateTruckRoute() {
         val start = currentLocation
@@ -1019,7 +1090,26 @@ private fun TruckNavApp() {
                     }
                 )
 
-                if (selectedTab == AppTab.MAP) {
+                if (isNavigating) {
+                    Card(
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        elevation = CardDefaults.cardElevation(10.dp)
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(label("NAVIGATION ACTIVE", "НАВИГАЦИЯ АКТИВНАЯ"), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            if (routeInstructions.isNotEmpty()) {
+                                Text(label("Next instruction", "Следующая команда"), style = MaterialTheme.typography.labelMedium)
+                                Text(routeInstructions[currentInstructionIndex.coerceIn(0, routeInstructions.lastIndex)], style = MaterialTheme.typography.titleMedium)
+                            }
+                            Text(label("Guidance is approximate; follow road signs and verify height/weight restrictions.", "Подсказки ориентировочные; соблюдай знаки и проверяй ограничения высоты и веса."), style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = { cancelNavigation() }, modifier = Modifier.fillMaxWidth()) {
+                                Text(label("Cancel navigation", "Отменить навигацию"))
+                            }
+                        }
+                    }
+                } else if (selectedTab == AppTab.MAP) {
                     var routePanelExpanded by remember { mutableStateOf(false) }
                     var poiPanelExpanded by remember { mutableStateOf(false) }
                     Column(
@@ -1140,6 +1230,11 @@ private fun TruckNavApp() {
                                     ) {
                                         Text(if (routeLoading) label("Calculating…", "Рассчитываю…") else label("Route to point", "Маршрут до точки"))
                                     }
+                                    if (routePoints.size > 1 && !isNavigating) {
+                                        Button(onClick = { startNavigation() }, modifier = Modifier.weight(1f)) {
+                                            Text(label("Start", "Поехали"))
+                                        }
+                                    }
                                     TextButton(onClick = {
                                         selectedMapPoint = null
                                         statusMessage = ""
@@ -1189,7 +1284,12 @@ private fun TruckNavApp() {
                                     Button(onClick = { calculateTruckRoute() }, enabled = !routeLoading, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (routeLoading) label("Calculating…", "Рассчитываем…") else label("Calculate truck route", "Рассчитать грузовой маршрут"))
                                     }
-                                    if (routeSummary.isNotBlank()) Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    if (routeSummary.isNotBlank()) {
+                                        Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Button(onClick = { startNavigation() }, enabled = !isNavigating, modifier = Modifier.fillMaxWidth()) {
+                                            Text(label("Start navigation", "Начать навигацию"))
+                                        }
+                                    }
                                     routeClearanceWarnings?.let { warnings ->
                                         Card(
                                             colors = CardDefaults.cardColors(containerColor = if (warnings.isEmpty()) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer),
@@ -1420,4 +1520,4 @@ private fun TruckNavApp() {
     }
 }
 
-// Publish corrected clearance-warning build [publish-v25]
+// TruckNav navigation mode, GPS follow, voice prompts and cancel control [publish-v27]
