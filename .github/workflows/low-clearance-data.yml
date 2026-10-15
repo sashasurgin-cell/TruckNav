@@ -1,0 +1,52 @@
+name: Refresh nationwide low-clearance dataset
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 7 * * 0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install osmium-tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+
+      - name: Download and filter US OpenStreetMap extract
+        shell: bash
+        run: |
+          set -o pipefail
+          curl --fail --location --retry 3 --retry-delay 5 \
+            https://download.geofabrik.de/north-america/us-latest.osm.pbf \
+            | osmium tags-filter - \
+                w/maxheight w/maxheight:physical w/maxheight:conditional \
+                n/barrier=height_restrictor w/barrier=height_restrictor \
+                -o low-clearance.osm.pbf --overwrite
+
+      - name: Export GeoJSON
+        run: osmium export --geometry-types=point,linestring -o low-clearance.geojson low-clearance.osm.pbf
+
+      - name: Build compact JSON snapshot
+        run: python3 scripts/build_low_clearance_dataset.py low-clearance.geojson low-clearances.json
+
+      - name: Publish latest dataset asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view clearance-data >/dev/null 2>&1; then
+            gh release upload clearance-data low-clearances.json --clobber
+          else
+            gh release create clearance-data low-clearances.json \
+              --title "TruckNav Nationwide Low-Clearance Data" \
+              --notes "Automatically refreshed weekly from OpenStreetMap US data. © OpenStreetMap contributors; data available under ODbL. This dataset is incomplete and is not a substitute for posted signs or official route-clearance information."
+          fi
