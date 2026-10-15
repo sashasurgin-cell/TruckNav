@@ -252,6 +252,8 @@ private suspend fun fetchRoadRoute(
 
 private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String, val details: String = "")
 
+@Volatile private var nationwideLowClearanceCache: List<TruckPoi>? = null
+
 
 private fun weighStationMarkerIcon(context: android.content.Context): BitmapDrawable {
     val width = 88
@@ -449,6 +451,96 @@ private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckP
 }
 
 
+
+private suspend fun loadNationalLowClearancePois(
+    context: android.content.Context,
+    center: LatLng
+): List<TruckPoi>? = withContext(Dispatchers.IO) {
+    val cacheFile = java.io.File(context.cacheDir, "low-clearances.json")
+    val cacheMaxAgeMs = 7L * 24L * 60L * 60L * 1000L
+    var items = nationwideLowClearanceCache
+
+    if (items == null) {
+        if (!cacheFile.exists() || System.currentTimeMillis() - cacheFile.lastModified() > cacheMaxAgeMs) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL("https://github.com/sashasurgin-cell/TruckNav/releases/download/clearance-data/low-clearances.json").openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 45000
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "TruckNav-Android/1.0 (low-clearance data)")
+                    setRequestProperty("Accept", "application/json")
+                }
+                if (connection.responseCode in 200..299) {
+                    val temp = java.io.File(context.cacheDir, "low-clearances.json.tmp")
+                    temp.writeText(connection.inputStream.bufferedReader().use { it.readText() }, Charsets.UTF_8)
+                    if (temp.length() > 20 && temp.renameTo(cacheFile)) {
+                        // Keep the previous cache if the new download is empty or incomplete.
+                    }
+                }
+            } catch (_: Exception) {
+                // A cached snapshot remains usable if the network is unavailable.
+            } finally {
+                connection?.disconnect()
+            }
+        }
+
+        if (!cacheFile.exists()) return@withContext null
+        items = try {
+            val root = JSONObject(cacheFile.readText(Charsets.UTF_8))
+            val features = root.optJSONArray("features") ?: return@withContext null
+            val parsed = ArrayList<TruckPoi>(features.length())
+            for (i in 0 until features.length()) {
+                val feature = features.optJSONObject(i) ?: continue
+                val lat = feature.optDouble("lat", Double.NaN)
+                val lon = feature.optDouble("lon", Double.NaN)
+                if (!lat.isFinite() || !lon.isFinite()) continue
+                val height = feature.optString("height")
+                val barrier = feature.optString("barrier")
+                val details = when {
+                    height.isNotBlank() -> "Clearance: $height"
+                    barrier == "height_restrictor" -> "Height restrictor; exact clearance unknown"
+                    else -> "Height restriction recorded; exact clearance unknown"
+                }
+                val osmId = feature.optString("id")
+                val id = osmId.substringAfterLast('/').toLongOrNull() ?: i.toLong()
+                parsed.add(
+                    TruckPoi(
+                        id = id,
+                        name = feature.optString("name").ifBlank { "Low-clearance restriction" },
+                        latitude = lat,
+                        longitude = lon,
+                        category = "Low bridges",
+                        details = details
+                    )
+                )
+            }
+            parsed
+        } catch (_: Exception) {
+            return@withContext null
+        }
+        nationwideLowClearanceCache = items
+    }
+
+    val all = items ?: return@withContext null
+    fun distanceMeters(a: LatLng, bLat: Double, bLon: Double): Double {
+        val earthRadius = 6371000.0
+        val dLat = Math.toRadians(bLat - a.latitude)
+        val dLon = Math.toRadians(bLon - a.longitude)
+        val lat1 = Math.toRadians(a.latitude)
+        val lat2 = Math.toRadians(bLat)
+        val h = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) +
+            kotlin.math.cos(lat1) * kotlin.math.cos(lat2) *
+            kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
+        return 2 * earthRadius * kotlin.math.asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
+    }
+    all.asSequence()
+        .filter { distanceMeters(center, it.latitude, it.longitude) <= 50000.0 }
+        .sortedBy { distanceMeters(center, it.latitude, it.longitude) }
+        .take(250)
+        .toList()
+}
+
 @Composable
 private fun TruckNavApp() {
     val context = LocalContext.current
@@ -583,7 +675,11 @@ private fun TruckNavApp() {
         delay(900)
         while (true) {
             poiLoading = true
-            val loaded = loadTruckPois(selectedPoi, mapCenter)
+            val loaded = if (selectedPoi == "Low bridges") {
+                loadNationalLowClearancePois(context, mapCenter) ?: loadTruckPois(selectedPoi, mapCenter)
+            } else {
+                loadTruckPois(selectedPoi, mapCenter)
+            }
             visiblePois = loaded
             poiLoading = false
             statusMessage = if (loaded.isEmpty()) {
