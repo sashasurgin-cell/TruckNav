@@ -78,6 +78,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapListener
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -656,6 +658,7 @@ private fun TruckNavApp() {
     var routeInstructions by remember { mutableStateOf(emptyList<String>()) }
     var routeClearanceWarnings by remember { mutableStateOf<List<String>?>(null) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+    var selectedMapPoint by remember { mutableStateOf<LatLng?>(null) }
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     var updateInProgress by remember { mutableStateOf(false) }
@@ -846,6 +849,57 @@ private fun TruckNavApp() {
         }
     }
 
+
+    fun calculateRouteToMapPoint(point: LatLng) {
+        val start = currentLocation
+        if (start == null) {
+            statusMessage = label("Waiting for your GPS location. Enable Location and try again.", "Ожидаю GPS. Включи геолокацию и попробуй ещё раз.")
+            if (!hasLocationPermission) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+        routeLoading = true
+        routePoints = emptyList()
+        routeSummary = ""
+        routeInstructions = emptyList()
+        routeClearanceWarnings = null
+        coroutineScope.launch {
+            try {
+                statusMessage = label("Calculating truck route to selected point…", "Рассчитываю грузовой маршрут до выбранной точки…")
+                val parsedHeight = height.toDoubleOrNull() ?: 13.6
+                val parsedWidth = width.toDoubleOrNull() ?: 8.5
+                val parsedLength = length.toDoubleOrNull() ?: 71.0
+                val parsedWeight = weight.replace(",", "").toDoubleOrNull() ?: 36287.0
+                val parsedAxles = axles.toIntOrNull() ?: 5
+                val result = fetchRoadRoute(
+                    start, point, parsedHeight, parsedWidth, parsedLength, parsedWeight, parsedAxles,
+                    avoidTolls, avoidFerries, avoidHighways, avoidUnpaved,
+                    if (russian) "ru-RU" else "en-US"
+                )
+                if (result == null || result.first.size < 2) {
+                    statusMessage = label("Could not calculate route. Check your internet and try again.", "Не удалось построить маршрут. Проверь интернет и попробуй ещё раз.")
+                    return@launch
+                }
+                routePoints = result.first
+                routeSummary = result.second
+                routeInstructions = result.third
+                statusMessage = label("Checking known low-clearance restrictions along route…", "Проверяю известные ограничения высоты вдоль маршрута…")
+                routeClearanceWarnings = checkClearanceAlongRoute(context, result.first, parsedHeight)
+                mapView?.controller?.setCenter(GeoPoint(start.latitude, start.longitude))
+                mapView?.controller?.setZoom(7.0)
+                val warnings = routeClearanceWarnings
+                statusMessage = when {
+                    warnings == null -> label("Route calculated, but nationwide clearance data could not be loaded. Verify all posted signs.", "Маршрут построен, но национальную базу габаритов загрузить не удалось. Проверяй все дорожные знаки.")
+                    warnings.isEmpty() -> label("Route calculated: ${result.second}. No known low-clearance warnings found; this does NOT guarantee every bridge is safe.", "Маршрут построен: ${result.second}. Известных предупреждений о низких мостах не найдено, но это НЕ гарантирует безопасный проезд каждого моста.")
+                    else -> label("Route calculated: ${result.second}. Review ${warnings.size} clearance warning(s) and posted signs.", "Маршрут построен: ${result.second}. Проверь предупреждения по высоте: ${warnings.size}, и дорожные знаки.")
+                }
+            } catch (_: Exception) {
+                statusMessage = label("Route calculation failed. Please try again.", "Не удалось рассчитать маршрут. Попробуй ещё раз.")
+            } finally {
+                routeLoading = false
+            }
+        }
+    }
+
     MaterialTheme {
         Scaffold(
             bottomBar = {
@@ -906,11 +960,29 @@ private fun TruckNavApp() {
                                     return true
                                 }
                             })
+                            addMapListener(object : MapListener {
+                                override fun onScroll(event: ScrollEvent?): Boolean {
+                                    mapCenter = LatLng(osmMap.mapCenter.latitude, osmMap.mapCenter.longitude)
+                                    return true
+                                }
+                                override fun onZoom(event: ZoomEvent?): Boolean {
+                                    mapCenter = LatLng(osmMap.mapCenter.latitude, osmMap.mapCenter.longitude)
+                                    return true
+                                }
+                            })
                             mapView = this
                         }
                     },
                     update = { map ->
                         map.overlays.clear()
+                        map.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
+                            override fun singleTapConfirmedHelper(point: GeoPoint): Boolean {
+                                selectedMapPoint = LatLng(point.latitude, point.longitude)
+                                statusMessage = label("Map point selected. Tap Route to point to build a truck route from your GPS location.", "Точка выбрана. Нажми «Маршрут до точки», чтобы построить грузовой маршрут от GPS.")
+                                return true
+                            }
+                            override fun longPressHelper(point: GeoPoint): Boolean = false
+                        }))
                         if (routePoints.size > 1) {
                             map.overlays.add(Polyline().apply {
                                 setPoints(routePoints)
@@ -933,6 +1005,14 @@ private fun TruckNavApp() {
                                 }
                                 if (poi.category == "Weigh stations") icon = weighStationMarkerIcon(context)
                                 if (poi.category == "Low bridges") icon = lowBridgeMarkerIcon(context)
+                                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                            })
+                        }
+                        selectedMapPoint?.let { point ->
+                            map.overlays.add(OsmMarker(map).apply {
+                                position = GeoPoint(point.latitude, point.longitude)
+                                title = label("Selected destination", "Выбранная точка назначения")
+                                snippet = label("Tap Route to point below to calculate a truck route", "Нажми «Маршрут до точки» ниже, чтобы рассчитать грузовой маршрут")
                                 setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
                             })
                         }
@@ -1047,6 +1127,32 @@ private fun TruckNavApp() {
                                             Text(label("Search here", "Искать здесь"))
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                    selectedMapPoint?.let { point ->
+                        Card(
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            elevation = CardDefaults.cardElevation(8.dp)
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(label("Selected map point", "Выбранная точка на карте"), fontWeight = FontWeight.SemiBold)
+                                Text(String.format(Locale.US, "%.5f, %.5f", point.latitude, point.longitude), style = MaterialTheme.typography.bodySmall)
+                                if (routeSummary.isNotBlank()) Text(routeSummary, fontWeight = FontWeight.Medium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = { calculateRouteToMapPoint(point) },
+                                        enabled = !routeLoading,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(if (routeLoading) label("Calculating…", "Рассчитываю…") else label("Route to point", "Маршрут до точки"))
+                                    }
+                                    TextButton(onClick = {
+                                        selectedMapPoint = null
+                                        statusMessage = ""
+                                    }) { Text(label("Clear", "Убрать")) }
                                 }
                             }
                         }
