@@ -395,7 +395,8 @@ private fun overpassFilter(category: String, lat: Double, lon: Double): String {
         """.trimIndent()
         else -> """nwr$area["amenity"="restaurant"];"""
     }
-    return "[out:json][timeout:20];($queries);out center tags 80;"
+    val outputLimit = when (category) { "Weigh stations" -> 300; "Low bridges" -> 250; else -> 80 }
+    return "[out:json][timeout:25];($queries);out center tags $outputLimit;"
 }
 
 private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckPoi> = withContext(Dispatchers.IO) {
