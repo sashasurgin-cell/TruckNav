@@ -966,12 +966,13 @@ private fun TruckNavApp() {
                     update = { map ->
                         map.overlays.clear()
                         map.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-                            override fun singleTapConfirmedHelper(point: GeoPoint): Boolean {
+                            override fun singleTapConfirmedHelper(point: GeoPoint?): Boolean {
+                                if (point == null) return false
                                 selectedMapPoint = LatLng(point.latitude, point.longitude)
                                 statusMessage = label("Map point selected. Tap Route to point to build a truck route from your GPS location.", "Точка выбрана. Нажми «Маршрут до точки», чтобы построить грузовой маршрут от GPS.")
                                 return true
                             }
-                            override fun longPressHelper(point: GeoPoint): Boolean = false
+                            override fun longPressHelper(point: GeoPoint?): Boolean = false
                         }))
                         if (routePoints.size > 1) {
                             map.overlays.add(Polyline().apply {
