@@ -2,6 +2,11 @@ name: Refresh nationwide low-clearance dataset
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "scripts/build_low_clearance_dataset.py"
+      - ".github/workflows/low-clearance-data.yml"
   schedule:
     - cron: "17 7 * * 0"
 
