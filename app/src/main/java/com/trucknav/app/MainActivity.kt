@@ -1116,51 +1116,97 @@ private fun TruckNavApp() {
                         modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Card(shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(5.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Card(
+                            shape = RoundedCornerShape(24.dp),
+                            elevation = CardDefaults.cardElevation(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.LocalShipping, contentDescription = null, modifier = Modifier.size(25.dp))
-                                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                                        Text("TruckNav", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    }
-                                    IconButton(onClick = { settingsOpen = true }) {
-                                        Icon(Icons.Default.Settings, contentDescription = label("Settings", "Настройки"))
-                                    }
-                                    TextButton(onClick = { routePanelExpanded = !routePanelExpanded; poiPanelExpanded = false }) {
-                                        Icon(Icons.Default.Route, contentDescription = null)
-                                        Text(if (routePanelExpanded) "  −" else "  +")
-                                    }
-                                    TextButton(onClick = { poiPanelExpanded = !poiPanelExpanded; routePanelExpanded = false }) {
-                                        Icon(Icons.Default.Tune, contentDescription = null)
-                                        Text(if (poiPanelExpanded) "  −" else "  +")
-                                    }
-                                }
-                                if (routePanelExpanded) {
+                                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(24.dp))
                                     OutlinedTextField(
                                         value = destination,
                                         onValueChange = { destination = it },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier.weight(1f).padding(start = 8.dp),
                                         singleLine = true,
-                                        shape = RoundedCornerShape(12.dp),
-                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                        placeholder = { Text(label("Destination address or city", "Адрес или город назначения")) }
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Button(onClick = { selectedTab = AppTab.ROUTE; calculateTruckRoute() }, modifier = Modifier.weight(1f)) {
-                                            Text(label("Plan route", "Построить маршрут"))
+                                        shape = RoundedCornerShape(28.dp),
+                                        placeholder = { Text(label("Search places or addresses", "Поиск мест и адресов")) },
+                                        trailingIcon = {
+                                            if (destination.isNotBlank()) {
+                                                IconButton(onClick = { destination = "" }) {
+                                                    Icon(Icons.Default.Tune, contentDescription = label("Clear search", "Очистить поиск"))
+                                                }
+                                            }
                                         }
-                                        TextButton(onClick = {
+                                    )
+                                    IconButton(onClick = { settingsOpen = true }) {
+                                        Icon(Icons.Default.Settings, contentDescription = label("Settings", "Настройки"))
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilterChip(
+                                        selected = routePanelExpanded,
+                                        onClick = {
+                                            routePanelExpanded = !routePanelExpanded
+                                            if (routePanelExpanded && destination.isNotBlank()) calculateTruckRoute()
+                                        },
+                                        label = { Text(label("Directions", "Маршрут")) },
+                                        leadingIcon = { Icon(Icons.Default.Route, contentDescription = null) }
+                                    )
+                                    FilterChip(
+                                        selected = poiPanelExpanded && selectedPoi == "Truck parking",
+                                        onClick = { selectedPoi = "Truck parking"; poiPanelExpanded = true; routePanelExpanded = false },
+                                        label = { Text(label("Parking", "Стоянки")) }
+                                    )
+                                    FilterChip(
+                                        selected = poiPanelExpanded && selectedPoi == "Weigh stations",
+                                        onClick = { selectedPoi = "Weigh stations"; poiPanelExpanded = true; routePanelExpanded = false },
+                                        label = { Text(label("Weigh stations", "Весовые")) }
+                                    )
+                                    FilterChip(
+                                        selected = poiPanelExpanded && selectedPoi == "Fuel / DEF",
+                                        onClick = { selectedPoi = "Fuel / DEF"; poiPanelExpanded = true; routePanelExpanded = false },
+                                        label = { Text("Fuel / DEF") }
+                                    )
+                                    FilterChip(
+                                        selected = poiPanelExpanded && selectedPoi == "Truck stops",
+                                        onClick = { selectedPoi = "Truck stops"; poiPanelExpanded = true; routePanelExpanded = false },
+                                        label = { Text(label("Truck stops", "Трак-стопы")) }
+                                    )
+                                    IconButton(onClick = { poiPanelExpanded = !poiPanelExpanded; routePanelExpanded = false }) {
+                                        Icon(Icons.Default.Tune, contentDescription = label("All map layers", "Все объекты карты"))
+                                    }
+                                }
+                                if (routePanelExpanded) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Button(
+                                            onClick = { calculateTruckRoute() },
+                                            enabled = !routeLoading,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(if (routeLoading) label("Finding route…", "Строю маршрут…") else label("Build truck route", "Построить грузовой маршрут"))
+                                        }
+                                        IconButton(onClick = {
                                             if (!hasLocationPermission) {
                                                 permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                                             } else {
                                                 currentLocation?.let { location ->
                                                     mapView?.controller?.animateTo(GeoPoint(location.latitude, location.longitude))
-                                                    mapView?.controller?.setZoom(15.0)
+                                                    mapView?.controller?.setZoom(16.0)
                                                 } ?: run {
                                                     statusMessage = label("Waiting for GPS signal…", "Ожидаю сигнал GPS…")
                                                 }
                                             }
-                                        }) { Icon(Icons.Default.MyLocation, contentDescription = label("My location", "Моё местоположение")); Text(label(" GPS", " GPS")) }
+                                        }) {
+                                            Icon(Icons.Default.MyLocation, contentDescription = label("My location", "Моё местоположение"))
+                                        }
                                     }
                                 }
                             }
@@ -1520,4 +1566,4 @@ private fun TruckNavApp() {
     }
 }
 
-// TruckNav navigation mode, GPS follow, voice prompts, height-aware truck costing and cancel control [publish-v27]
+// Google Maps-inspired map-first interface and truck navigation [publish-v28]
