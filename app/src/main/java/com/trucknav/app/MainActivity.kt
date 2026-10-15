@@ -250,7 +250,7 @@ private suspend fun fetchRoadRoute(
     }
 }
 
-private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String)
+private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String, val details: String = "")
 
 
 private fun weighStationMarkerIcon(context: android.content.Context): BitmapDrawable {
@@ -284,6 +284,38 @@ private fun weighStationMarkerIcon(context: android.content.Context): BitmapDraw
     return BitmapDrawable(context.resources, bitmap)
 }
 
+
+private fun lowBridgeMarkerIcon(context: android.content.Context): BitmapDrawable {
+    val width = 88
+    val height = 104
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(222, 132, 24) }
+    canvas.drawCircle(width / 2f, 39f, 32f, markerPaint)
+    val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    canvas.drawCircle(width / 2f, 39f, 32f, outlinePaint)
+    val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = 43f
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+    }
+    canvas.drawText("↕", width / 2f, 53f, symbolPaint)
+    val pointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(222, 132, 24) }
+    val path = android.graphics.Path().apply {
+        moveTo(width / 2f - 13f, 62f)
+        lineTo(width / 2f + 13f, 62f)
+        lineTo(width / 2f, 83f)
+        close()
+    }
+    canvas.drawPath(path, pointPaint)
+    return BitmapDrawable(context.resources, bitmap)
+}
+
 private val poiCategories = listOf(
     "Truck parking", "Weigh stations", "Fuel / DEF", "Truck stops",
     "CAT scales", "Rest areas", "Repair shops", "Tire shops",
@@ -292,8 +324,12 @@ private val poiCategories = listOf(
 )
 
 private fun overpassFilter(category: String, lat: Double, lon: Double): String {
-    // Weigh stations are sparse, so search a much wider radius than ordinary POIs.
-    val radiusMeters = if (category == "Weigh stations") 100000 else 25000
+    // Weigh stations are sparse; low-clearance restrictions are searched in a wider radius too.
+    val radiusMeters = when (category) {
+        "Weigh stations" -> 100000
+        "Low bridges" -> 50000
+        else -> 25000
+    }
     val area = "(around:$radiusMeters,$lat,$lon)"
     val queries = when (category) {
         "Truck parking" -> """
@@ -338,7 +374,12 @@ private fun overpassFilter(category: String, lat: Double, lon: Double): String {
             nwr$area["name"~"truck wash|Blue Beacon|trailer washout",i];
             nwr$area["amenity"="car_wash"]["hgv"="yes"];
         """.trimIndent()
-        "Low bridges" -> """way$area["maxheight"];"""
+        "Low bridges" -> """
+            way$area["maxheight"];
+            way$area["maxheight:physical"];
+            way$area["maxheight:conditional"];
+            nwr$area["barrier"="height_restrictor"];
+        """.trimIndent()
         "Walmart" -> """nwr$area["name"~"Walmart",i];"""
         "Truck dealers" -> """
             nwr$area["shop"="truck"];
@@ -384,9 +425,21 @@ private suspend fun loadTruckPois(category: String, center: LatLng): List<TruckP
                 else element.optJSONObject("center")?.optDouble("lon", Double.NaN) ?: Double.NaN
             if (!lat.isFinite() || !lon.isFinite()) continue
             val name = tags.optString("name").takeIf { it.isNotBlank() } ?: category
-            results.add(TruckPoi(element.optLong("id", i.toLong()), name, lat, lon, category))
+            val details = if (category == "Low bridges") {
+                val clearance = tags.optString("maxheight").ifBlank {
+                    tags.optString("maxheight:physical").ifBlank { tags.optString("maxheight:conditional") }
+                }
+                when {
+                    clearance.isNotBlank() -> "Clearance: $clearance"
+                    tags.optString("barrier") == "height_restrictor" -> "Height restrictor; exact clearance unknown"
+                    else -> "Height restriction recorded; exact clearance unknown"
+                }
+            } else ""
+            results.add(TruckPoi(element.optLong("id", i.toLong()), name, lat, lon, category, details))
         }
-        results.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }.take(if (category == "Weigh stations") 300 else 80)
+        results.distinctBy { "${it.id}:${it.latitude}:${it.longitude}" }.take(
+            when (category) { "Weigh stations" -> 300; "Low bridges" -> 250; else -> 80 }
+        )
     } catch (_: Exception) {
         emptyList()
     } finally {
@@ -674,10 +727,17 @@ private fun TruckNavApp() {
                             map.overlays.add(OsmMarker(map).apply {
                                 position = GeoPoint(poi.latitude, poi.longitude)
                                 title = poi.name
-                                snippet = if (poi.category == "Weigh stations") label("Weigh station / inspection point — verify operating status and truck access", "Весовая / пункт контроля — проверь режим работы и доступ для грузовиков") else poi.category
-                                if (poi.category == "Weigh stations") {
-                                    icon = weighStationMarkerIcon(context)
+                                snippet = when (poi.category) {
+                                    "Weigh stations" -> label("Weigh station / inspection point — verify operating status and truck access", "Весовая / пункт контроля — проверь режим работы и доступ для грузовиков")
+                                    "Low bridges" -> buildString {
+                                        append(if (poi.details.isNotBlank()) poi.details else label("Height restriction; clearance unknown", "Ограничение высоты; габарит неизвестен"))
+                                        append(" • ")
+                                        append(label("Verify road signs before proceeding", "Перед проездом обязательно проверь дорожные знаки"))
+                                    }
+                                    else -> poi.category
                                 }
+                                if (poi.category == "Weigh stations") icon = weighStationMarkerIcon(context)
+                                if (poi.category == "Low bridges") icon = lowBridgeMarkerIcon(context)
                                 setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
                             })
                         }
