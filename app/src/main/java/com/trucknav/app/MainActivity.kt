@@ -1520,4 +1520,4 @@ private fun TruckNavApp() {
     }
 }
 
-// TruckNav navigation mode, GPS follow, voice prompts and cancel control [publish-v27]
+// TruckNav navigation mode, GPS follow, voice prompts, height-aware truck costing and cancel control [publish-v27]
