@@ -1090,6 +1090,51 @@ private fun TruckNavApp() {
                     }
                 )
 
+                // Floating map controls: zoom and recenter, kept separate from route panels.
+                if (selectedTab == AppTab.MAP) {
+                    Column(
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            shadowElevation = 6.dp,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                IconButton(onClick = { map.controller.zoomIn() }) {
+                                    Text("+", style = MaterialTheme.typography.titleLarge)
+                                }
+                                Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+                                IconButton(onClick = { map.controller.zoomOut() }) {
+                                    Text("−", style = MaterialTheme.typography.titleLarge)
+                                }
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            shadowElevation = 6.dp,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            IconButton(onClick = {
+                                if (!hasLocationPermission) {
+                                    permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                                } else {
+                                    currentLocation?.let { location ->
+                                        map.controller.animateTo(GeoPoint(location.latitude, location.longitude))
+                                        map.controller.setZoom(16.0)
+                                    } ?: run {
+                                        statusMessage = label("Waiting for GPS signal…", "Ожидаю сигнал GPS…")
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Default.MyLocation, contentDescription = label("My location", "Моё местоположение"))
+                            }
+                        }
+                    }
+                }
+
                 if (isNavigating) {
                     Card(
                         modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
