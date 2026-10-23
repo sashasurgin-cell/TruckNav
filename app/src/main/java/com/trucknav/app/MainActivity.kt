@@ -81,6 +81,7 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -258,19 +259,29 @@ private data class TruckPoi(val id: Long, val name: String, val latitude: Double
 @Volatile private var nationwideLowClearanceCache: List<TruckPoi>? = null
 
 
-private fun currentLocationMarkerIcon(context: android.content.Context): BitmapDrawable {
-    val size = 96
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+private class CurrentLocationDotOverlay(private val position: GeoPoint) : Overlay() {
+    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(55, 66, 133, 244)
+        style = Paint.Style.FILL
     }
-    canvas.drawCircle(size / 2f, size / 2f, 43f, haloPaint)
-    val whiteBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-    canvas.drawCircle(size / 2f, size / 2f, 17f, whiteBorder)
-    val blueDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(66, 133, 244) }
-    canvas.drawCircle(size / 2f, size / 2f, 13f, blueDot)
-    return BitmapDrawable(context.resources, bitmap)
+    private val whiteBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+    }
+    private val blueDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(66, 133, 244)
+        style = Paint.Style.FILL
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow) return
+        val pixel = mapView.projection.toPixels(position, android.graphics.Point())
+        val x = pixel.x.toFloat()
+        val y = pixel.y.toFloat()
+        canvas.drawCircle(x, y, 24f, haloPaint)
+        canvas.drawCircle(x, y, 9f, whiteBorderPaint)
+        canvas.drawCircle(x, y, 6.5f, blueDotPaint)
+    }
 }
 
 private fun weighStationMarkerIcon(context: android.content.Context): BitmapDrawable {
@@ -1095,13 +1106,11 @@ private fun TruckNavApp() {
                             })
                         }
                         currentLocation?.let { location ->
-                            map.overlays.add(OsmMarker(map).apply {
-                                position = GeoPoint(location.latitude, location.longitude)
-                                title = label("Your location", "Ваше местоположение")
-                                snippet = label("GPS location", "По GPS")
-                                icon = currentLocationMarkerIcon(context)
-                                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_CENTER)
-                            })
+                            // Draw the GPS position directly on the map canvas so OSMDroid's
+                            // default green pin can never replace the Google-style blue dot.
+                            map.overlays.add(
+                                CurrentLocationDotOverlay(GeoPoint(location.latitude, location.longitude))
+                            )
                         }
                         map.invalidate()
                     }
