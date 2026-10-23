@@ -258,6 +258,21 @@ private data class TruckPoi(val id: Long, val name: String, val latitude: Double
 @Volatile private var nationwideLowClearanceCache: List<TruckPoi>? = null
 
 
+private fun currentLocationMarkerIcon(context: android.content.Context): BitmapDrawable {
+    val size = 96
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(55, 66, 133, 244)
+    }
+    canvas.drawCircle(size / 2f, size / 2f, 43f, haloPaint)
+    val whiteBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    canvas.drawCircle(size / 2f, size / 2f, 17f, whiteBorder)
+    val blueDot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(66, 133, 244) }
+    canvas.drawCircle(size / 2f, size / 2f, 13f, blueDot)
+    return BitmapDrawable(context.resources, bitmap)
+}
+
 private fun weighStationMarkerIcon(context: android.content.Context): BitmapDrawable {
     val width = 88
     val height = 104
@@ -1084,6 +1099,7 @@ private fun TruckNavApp() {
                                 position = GeoPoint(location.latitude, location.longitude)
                                 title = label("Your location", "Ваше местоположение")
                                 snippet = label("GPS location", "По GPS")
+                                icon = currentLocationMarkerIcon(context)
                                 setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_CENTER)
                             })
                         }
