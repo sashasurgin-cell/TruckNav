@@ -1106,7 +1106,7 @@ private fun TruckNavApp() {
                                 IconButton(onClick = { mapView?.controller?.zoomIn() }) {
                                     Text("+", style = MaterialTheme.typography.titleLarge)
                                 }
-                                Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                                Surface(modifier = Modifier.fillMaxWidth().height(1.dp), color = MaterialTheme.colorScheme.outlineVariant) {}
                                 IconButton(onClick = { mapView?.controller?.zoomOut() }) {
                                     Text("−", style = MaterialTheme.typography.titleLarge)
                                 }
