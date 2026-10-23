@@ -1103,11 +1103,11 @@ private fun TruckNavApp() {
                             color = MaterialTheme.colorScheme.surface
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                IconButton(onClick = { map.controller.zoomIn() }) {
+                                IconButton(onClick = { mapView?.controller?.zoomIn() }) {
                                     Text("+", style = MaterialTheme.typography.titleLarge)
                                 }
-                                Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
-                                IconButton(onClick = { map.controller.zoomOut() }) {
+                                Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                                IconButton(onClick = { mapView?.controller?.zoomOut() }) {
                                     Text("−", style = MaterialTheme.typography.titleLarge)
                                 }
                             }
@@ -1122,8 +1122,8 @@ private fun TruckNavApp() {
                                     permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                                 } else {
                                     currentLocation?.let { location ->
-                                        map.controller.animateTo(GeoPoint(location.latitude, location.longitude))
-                                        map.controller.setZoom(16.0)
+                                        mapView?.controller?.animateTo(GeoPoint(location.latitude, location.longitude))
+                                        mapView?.controller?.setZoom(16.0)
                                     } ?: run {
                                         statusMessage = label("Waiting for GPS signal…", "Ожидаю сигнал GPS…")
                                     }
