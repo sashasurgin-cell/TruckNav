@@ -1017,7 +1017,7 @@ private fun TruckNavApp() {
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            setBuiltInZoomControls(false)
+                            setBuiltInZoomControls(true)
                             controller.setZoom(if (currentLocation != null) 15.0 else 9.5)
                             val initialCenter = currentLocation ?: mapCenter
                             controller.setCenter(GeoPoint(initialCenter.latitude, initialCenter.longitude))
@@ -1091,29 +1091,13 @@ private fun TruckNavApp() {
                     }
                 )
 
-                // Floating map controls: zoom and recenter, kept separate from route panels.
+                // Keep the small auto-hiding OSMDroid +/- controls; add only a separate recenter target.
                 if (selectedTab == AppTab.MAP) {
-                    Column(
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 180.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Box(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 180.dp)
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            shadowElevation = 6.dp,
-                            color = MaterialTheme.colorScheme.surface
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                IconButton(onClick = { mapView?.controller?.zoomIn() }) {
-                                    Text("+", style = MaterialTheme.typography.titleLarge)
-                                }
-                                Surface(modifier = Modifier.fillMaxWidth().height(1.dp), color = MaterialTheme.colorScheme.outlineVariant) {}
-                                IconButton(onClick = { mapView?.controller?.zoomOut() }) {
-                                    Text("−", style = MaterialTheme.typography.titleLarge)
-                                }
-                            }
-                        }
-                        Surface(
+                            modifier = Modifier.padding(start = 4.dp),
                             shape = RoundedCornerShape(16.dp),
                             shadowElevation = 6.dp,
                             color = MaterialTheme.colorScheme.surface
@@ -1612,4 +1596,4 @@ private fun TruckNavApp() {
     }
 }
 
-// Google Maps-inspired map-first interface and truck navigation [publish-v28]
+// Restore auto-hiding map zoom buttons and keep recenter target [publish-v33]
