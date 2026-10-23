@@ -1017,6 +1017,7 @@ private fun TruckNavApp() {
                         MapView(ctx).apply {
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
+                            setBuiltInZoomControls(false)
                             controller.setZoom(if (currentLocation != null) 15.0 else 9.5)
                             val initialCenter = currentLocation ?: mapCenter
                             controller.setCenter(GeoPoint(initialCenter.latitude, initialCenter.longitude))
@@ -1093,7 +1094,7 @@ private fun TruckNavApp() {
                 // Floating map controls: zoom and recenter, kept separate from route panels.
                 if (selectedTab == AppTab.MAP) {
                     Column(
-                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 180.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
