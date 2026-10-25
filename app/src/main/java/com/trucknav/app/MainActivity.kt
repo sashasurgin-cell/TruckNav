@@ -860,7 +860,7 @@ private fun TruckNavApp() {
             if (distance < closestDistance) { closestDistance = distance; closestIndex = index }
         }
         val remainingMiles = (totalRouteMiles - cumulativeMiles[closestIndex]).coerceAtLeast(0.0)
-        val summaryMatch = Regex("([0-9]+(?:\\\\.[0-9]+)?) mi .*?([0-9]+(?:\\\\.[0-9]+)?) min").find(routeSummary)
+        val summaryMatch = Regex("([0-9]+(?:\\.[0-9]+)?) mi .*?([0-9]+(?:\\.[0-9]+)?) min").find(routeSummary)
         val totalMinutes = summaryMatch?.groupValues?.getOrNull(2)?.toDoubleOrNull() ?: 0.0
         val summaryMiles = summaryMatch?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
         remainingDistanceMiles = remainingMiles
