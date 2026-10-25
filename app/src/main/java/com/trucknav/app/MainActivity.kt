@@ -883,7 +883,7 @@ private fun TruckNavApp() {
 
     fun startNavigation() {
         val clearanceWarnings = routeClearanceWarnings
-        if (!clearanceWarningConfirmed && clearanceWarnings != null && clearanceWarnings.isNotEmpty()) {
+        if (!clearanceWarningConfirmed && (clearanceWarnings == null || clearanceWarnings.isNotEmpty())) {
             showClearanceConfirmation = true
             return
         }
@@ -1553,10 +1553,17 @@ private fun TruckNavApp() {
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            label(
-                                "The route has known or unverified low-clearance restrictions nearby. This app cannot guarantee the route is safe. Check official signs and do not proceed if clearance is insufficient.",
-                                "Рядом с маршрутом найдены известные ограничения или участки с непроверенным габаритом. Приложение не гарантирует безопасность маршрута. Проверь официальные знаки и не продолжай движение, если высоты недостаточно."
-                            )
+                            if (routeClearanceWarnings == null) {
+                                label(
+                                    "Clearance data could not be loaded, so this route has not been checked against the clearance database. This app cannot guarantee the route is safe. Check official signs and do not proceed if clearance is insufficient.",
+                                    "Не удалось загрузить базу ограничений высоты, поэтому маршрут не проверен по этой базе. Приложение не гарантирует безопасность маршрута. Проверяй официальные знаки и не продолжай движение, если высоты недостаточно."
+                                )
+                            } else {
+                                label(
+                                    "Known or unverified low-clearance restrictions were found near the route. This app cannot guarantee the route is safe. Check official signs and do not proceed if clearance is insufficient.",
+                                    "Рядом с маршрутом найдены известные ограничения или участки с непроверенным габаритом. Приложение не гарантирует безопасность маршрута. Проверяй официальные знаки и не продолжай движение, если высоты недостаточно."
+                                )
+                            }
                         )
                         (routeClearanceWarnings ?: emptyList()).take(5).forEach { warning ->
                             Text("⚠ $warning", style = MaterialTheme.typography.bodySmall)
