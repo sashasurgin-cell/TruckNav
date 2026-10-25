@@ -721,6 +721,7 @@ private fun TruckNavApp() {
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var mapCenter by remember { mutableStateOf(LatLng(41.8781, -87.6298)) }
     var routePoints by remember { mutableStateOf(emptyList<GeoPoint>()) }
+    var routeDestination by remember { mutableStateOf<LatLng?>(null) }
     var routeLoading by remember { mutableStateOf(false) }
     var routeSummary by remember { mutableStateOf("") }
     var routeInstructions by remember { mutableStateOf(emptyList<String>()) }
@@ -882,6 +883,67 @@ private fun TruckNavApp() {
         }
     }
 
+    // Automatic off-route recovery: two consecutive readings prevent GPS-jitter reroutes.
+    LaunchedEffect(isNavigating) {
+        var offRouteReadings = 0
+        var rerouting = false
+        while (isNavigating) {
+            delay(5000)
+            if (!isNavigating || rerouting) continue
+            val location = currentLocation ?: continue
+            val destinationPoint = routeDestination ?: continue
+            val points = routePoints
+            if (points.size < 2) continue
+            var nearestMiles = Double.MAX_VALUE
+            for (point in points) {
+                val lat1 = Math.toRadians(location.latitude)
+                val lat2 = Math.toRadians(point.latitude)
+                val dLat = lat2 - lat1
+                val dLon = Math.toRadians(point.longitude - location.longitude)
+                val h = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) + kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
+                val miles = 3958.8 * 2 * kotlin.math.asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
+                if (miles < nearestMiles) nearestMiles = miles
+            }
+            if (nearestMiles > 0.35) offRouteReadings++ else offRouteReadings = 0
+            if (offRouteReadings < 2) continue
+            val profile = parseTruckProfile(height, width, length, weight, axles)
+            if (profile == null) {
+                statusMessage = label("Off route. Check truck dimensions before recalculating.", "Вы отклонились от маршрута. Проверь габариты грузовика перед перестроением.")
+                offRouteReadings = 0
+                continue
+            }
+            rerouting = true
+            offRouteReadings = 0
+            routeLoading = true
+            statusMessage = label("Off route — recalculating truck route…", "Маршрут изменён — перестраиваю грузовой маршрут…")
+            try {
+                val result = fetchRoadRoute(LatLng(location.latitude, location.longitude), destinationPoint,
+                    profile.heightFt, profile.widthFt, profile.lengthFt, profile.weightLb, profile.axles,
+                    avoidTolls, avoidFerries, avoidHighways, avoidUnpaved, if (russian) "ru-RU" else "en-US")
+                if (isNavigating && result != null && result.first.size >= 2) {
+                    routePoints = result.first
+                    routeSummary = result.second
+                    routeInstructions = result.third
+                    currentInstructionIndex = 0
+                    routeClearanceWarnings = checkClearanceAlongRoute(context, result.first, profile.heightFt)
+                    clearanceWarningConfirmed = false
+                    speechEngine.language = if (russian) Locale("ru", "RU") else Locale.US
+                    speechEngine.speak(label("Route recalculated. Continue to the highlighted route.", "Маршрут перестроен. Продолжай по новому маршруту."), TextToSpeech.QUEUE_FLUSH, null, "trucknav-reroute")
+                    statusMessage = when {
+                        routeClearanceWarnings == null -> label("Route recalculated. Clearance data unavailable; verify posted signs.", "Маршрут перестроен. База высот недоступна — проверяй дорожные знаки.")
+                        routeClearanceWarnings!!.isNotEmpty() -> label("Route recalculated with " + routeClearanceWarnings!!.size + " possible clearance warning(s). Check posted signs.", "Маршрут перестроен. Возможных предупреждений по высоте: " + routeClearanceWarnings!!.size + ". Проверяй знаки.")
+                        else -> label("Route recalculated. Known bridge data may be incomplete; follow posted signs.", "Маршрут перестроен. Данные о мостах могут быть неполными — следи за знаками.")
+                    }
+                } else if (isNavigating) statusMessage = label("Could not recalculate route. Check GPS and internet; follow road signs safely.", "Не удалось перестроить маршрут. Проверь GPS и интернет; ориентируйся по дорожным знакам.")
+            } catch (_: Exception) {
+                if (isNavigating) statusMessage = label("Rerouting failed. Check internet and follow road signs.", "Не удалось перестроить маршрут. Проверь интернет и дорожные знаки.")
+            } finally {
+                routeLoading = false
+                rerouting = false
+            }
+        }
+    }
+
     // Refresh POIs automatically when the selected category or map area changes.
     // A 0.1-degree grid avoids firing a request for every tiny map gesture.
     LaunchedEffect(
@@ -945,6 +1007,7 @@ private fun TruckNavApp() {
         currentInstructionIndex = 0
         speechEngine.stop()
         routePoints = emptyList()
+        routeDestination = null
         routeSummary = ""
         routeInstructions = emptyList()
         routeClearanceWarnings = null
@@ -999,6 +1062,7 @@ private fun TruckNavApp() {
                     return@launch
                 }
                 routePoints = result.first
+                routeDestination = end
                 routeSummary = result.second
                 routeInstructions = result.third
                 statusMessage = label("Checking known low-clearance restrictions along route…", "Проверяю известные ограничения высоты вдоль маршрута…")
@@ -1057,6 +1121,7 @@ private fun TruckNavApp() {
                     return@launch
                 }
                 routePoints = result.first
+                routeDestination = point
                 routeSummary = result.second
                 routeInstructions = result.third
                 statusMessage = label("Checking known low-clearance restrictions along route…", "Проверяю известные ограничения высоты вдоль маршрута…")
