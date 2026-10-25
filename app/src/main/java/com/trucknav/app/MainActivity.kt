@@ -283,6 +283,18 @@ private suspend fun fetchRoadRoute(
     }
 }
 
+private fun formatEta(minutesValue: Double, russian: Boolean): String {
+    val minutes = minutesValue.coerceAtLeast(0.0).toInt()
+    val hours = minutes / 60
+    val remainingMinutes = minutes % 60
+    return when {
+        hours > 0 && russian -> hours.toString() + " ч " + remainingMinutes + " мин"
+        hours > 0 -> hours.toString() + " hr " + remainingMinutes + " min"
+        russian -> remainingMinutes.toString() + " мин"
+        else -> remainingMinutes.toString() + " min"
+    }
+}
+
 private data class TruckPoi(val id: Long, val name: String, val latitude: Double, val longitude: Double, val category: String, val details: String = "")
 
 @Volatile private var nationwideLowClearanceCache: List<TruckPoi>? = null
@@ -719,6 +731,9 @@ private fun TruckNavApp() {
     var selectedMapPoint by remember { mutableStateOf<LatLng?>(null) }
     var isNavigating by remember { mutableStateOf(false) }
     var currentInstructionIndex by remember { mutableStateOf(0) }
+    var remainingDistanceMiles by remember { mutableStateOf(0.0) }
+    var remainingTimeMinutes by remember { mutableStateOf(0.0) }
+    var distanceToNextTurnMiles by remember { mutableStateOf(0.0) }
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
     val speechEngine = remember(context) { TextToSpeech(context) { } }
     androidx.compose.runtime.DisposableEffect(speechEngine) {
@@ -821,33 +836,45 @@ private fun TruckNavApp() {
         onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
     }
 
-    LaunchedEffect(currentLocation, isNavigating, routePoints, routeInstructions) {
+    LaunchedEffect(currentLocation, isNavigating, routePoints, routeInstructions, currentInstructionIndex, routeSummary) {
         if (!isNavigating) return@LaunchedEffect
         val location = currentLocation ?: return@LaunchedEffect
         if (routePoints.size < 2) return@LaunchedEffect
         mapView?.controller?.animateTo(GeoPoint(location.latitude, location.longitude))
         mapView?.controller?.setZoom(17.0)
-        // Fallback progress estimate based on the closest route point. Turn timing is approximate.
-        var closestIndex = 0
-        var closestDistance = Double.MAX_VALUE
+        fun segmentMiles(a: GeoPoint, b: GeoPoint): Double {
+            val lat1 = Math.toRadians(a.latitude); val lat2 = Math.toRadians(b.latitude)
+            val dLat = lat2 - lat1; val dLon = Math.toRadians(b.longitude - a.longitude)
+            val h = kotlin.math.sin(dLat / 2) * kotlin.math.sin(dLat / 2) + kotlin.math.cos(lat1) * kotlin.math.cos(lat2) * kotlin.math.sin(dLon / 2) * kotlin.math.sin(dLon / 2)
+            return 3958.8 * 2 * kotlin.math.asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
+        }
+        val segmentDistances = (0 until routePoints.lastIndex).map { segmentMiles(routePoints[it], routePoints[it + 1]) }
+        val cumulativeMiles = DoubleArray(routePoints.size)
+        for (i in segmentDistances.indices) cumulativeMiles[i + 1] = cumulativeMiles[i] + segmentDistances[i]
+        val totalRouteMiles = cumulativeMiles.last().coerceAtLeast(0.01)
+        var closestIndex = 0; var closestDistance = Double.MAX_VALUE
         routePoints.forEachIndexed { index, point ->
             val dLat = point.latitude - location.latitude
             val dLon = (point.longitude - location.longitude) * kotlin.math.cos(Math.toRadians(location.latitude))
             val distance = dLat * dLat + dLon * dLon
-            if (distance < closestDistance) {
-                closestDistance = distance
-                closestIndex = index
-            }
+            if (distance < closestDistance) { closestDistance = distance; closestIndex = index }
         }
+        val remainingMiles = (totalRouteMiles - cumulativeMiles[closestIndex]).coerceAtLeast(0.0)
+        val summaryMatch = Regex("([0-9]+(?:\\\\.[0-9]+)?) mi .*?([0-9]+(?:\\\\.[0-9]+)?) min").find(routeSummary)
+        val totalMinutes = summaryMatch?.groupValues?.getOrNull(2)?.toDoubleOrNull() ?: 0.0
+        val summaryMiles = summaryMatch?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+        remainingDistanceMiles = remainingMiles
+        remainingTimeMinutes = if (summaryMiles > 0.0) totalMinutes * remainingMiles / summaryMiles else 0.0
         if (routeInstructions.isNotEmpty()) {
-            val estimated = ((closestIndex.toDouble() / (routePoints.size - 1)) * routeInstructions.size)
-                .toInt().coerceIn(0, routeInstructions.lastIndex)
+            val estimated = ((closestIndex.toDouble() / (routePoints.size - 1)) * routeInstructions.size).toInt().coerceIn(0, routeInstructions.lastIndex)
             if (estimated > currentInstructionIndex) {
                 currentInstructionIndex = estimated
                 speechEngine.language = if (russian) Locale("ru", "RU") else Locale.US
                 speechEngine.speak(routeInstructions[estimated], TextToSpeech.QUEUE_FLUSH, null, "trucknav-turn-$estimated")
             }
-        }
+            val nextTurnPointIndex = (((currentInstructionIndex + 1).toDouble() / routeInstructions.size) * (routePoints.size - 1)).toInt().coerceIn(closestIndex, routePoints.lastIndex)
+            distanceToNextTurnMiles = (cumulativeMiles[nextTurnPointIndex] - cumulativeMiles[closestIndex]).coerceAtLeast(0.0)
+        } else distanceToNextTurnMiles = remainingMiles
     }
 
     // Refresh POIs automatically when the selected category or map area changes.
@@ -1201,10 +1228,13 @@ private fun TruckNavApp() {
                     ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(label("NAVIGATION ACTIVE", "НАВИГАЦИЯ АКТИВНАЯ"), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            Text(routeSummary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(label("To destination", "До пункта назначения"), style = MaterialTheme.typography.labelMedium)
+                            Text(String.format(Locale.US, "%.1f mi • %s", remainingDistanceMiles, formatEta(remainingTimeMinutes, russian)), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(label("Full route: ", "Весь маршрут: ") + routeSummary, style = MaterialTheme.typography.bodySmall)
                             if (routeInstructions.isNotEmpty()) {
-                                Text(label("Next instruction", "Следующая команда"), style = MaterialTheme.typography.labelMedium)
+                                Text(label("Next turn / exit", "Следующий поворот / съезд"), style = MaterialTheme.typography.labelMedium)
                                 Text(routeInstructions[currentInstructionIndex.coerceIn(0, routeInstructions.lastIndex)], style = MaterialTheme.typography.titleMedium)
+                                Text(String.format(Locale.US, "%.1f mi", distanceToNextTurnMiles) + " • " + label("approximate distance", "примерное расстояние"), style = MaterialTheme.typography.bodyMedium)
                             }
                             Text(label("Guidance is approximate; follow road signs and verify height/weight restrictions.", "Подсказки ориентировочные; соблюдай знаки и проверяй ограничения высоты и веса."), style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { cancelNavigation() }, modifier = Modifier.fillMaxWidth()) {
