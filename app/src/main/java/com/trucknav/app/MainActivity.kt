@@ -885,7 +885,7 @@ private fun TruckNavApp() {
         }
     }
 
-    // Automatic off-route recovery: two consecutive readings prevent GPS-jitter reroutes.
+    // v40: automatic off-route recovery; two readings prevent GPS-jitter reroutes.
     LaunchedEffect(isNavigating) {
         var offRouteReadings = 0
         var rerouting = false
