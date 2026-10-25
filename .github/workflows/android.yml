@@ -1,5 +1,6 @@
 name: Build TruckNav APK
 # Release publishing is selected by commit message [publish-v35].
+# v35 includes persisted and validated truck-profile settings.
 
 on:
   push:
