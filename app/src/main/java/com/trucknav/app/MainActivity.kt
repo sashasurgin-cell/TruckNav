@@ -713,6 +713,8 @@ private fun TruckNavApp() {
     var routeSummary by remember { mutableStateOf("") }
     var routeInstructions by remember { mutableStateOf(emptyList<String>()) }
     var routeClearanceWarnings by remember { mutableStateOf<List<String>?>(null) }
+    var showClearanceConfirmation by remember { mutableStateOf(false) }
+    var clearanceWarningConfirmed by remember { mutableStateOf(false) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var selectedMapPoint by remember { mutableStateOf<LatLng?>(null) }
     var isNavigating by remember { mutableStateOf(false) }
@@ -880,6 +882,11 @@ private fun TruckNavApp() {
     fun label(en: String, ru: String) = if (russian) ru else en
 
     fun startNavigation() {
+        val clearanceWarnings = routeClearanceWarnings
+        if (!clearanceWarningConfirmed && clearanceWarnings != null && clearanceWarnings.isNotEmpty()) {
+            showClearanceConfirmation = true
+            return
+        }
         if (routePoints.size < 2) {
             statusMessage = label("Calculate a route first.", "Сначала построй маршрут.")
             return
@@ -939,6 +946,7 @@ private fun TruckNavApp() {
         routeSummary = ""
         routeInstructions = emptyList()
         routeClearanceWarnings = null
+        clearanceWarningConfirmed = false
         coroutineScope.launch {
             try {
                 statusMessage = label("Finding destination…", "Ищу пункт назначения…")
@@ -1002,6 +1010,7 @@ private fun TruckNavApp() {
         routeSummary = ""
         routeInstructions = emptyList()
         routeClearanceWarnings = null
+        clearanceWarningConfirmed = false
         coroutineScope.launch {
             try {
                 statusMessage = label("Calculating truck route to selected point…", "Рассчитываю грузовой маршрут до выбранной точки…")
@@ -1535,6 +1544,49 @@ private fun TruckNavApp() {
                 }
             }
         }
+        if (showClearanceConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showClearanceConfirmation = false },
+                title = {
+                    Text(label("Review truck-clearance warnings", "Проверь ограничения для грузовика"))
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            label(
+                                "The route has known or unverified low-clearance restrictions nearby. This app cannot guarantee the route is safe. Check official signs and do not proceed if clearance is insufficient.",
+                                "Рядом с маршрутом найдены известные ограничения или участки с непроверенным габаритом. Приложение не гарантирует безопасность маршрута. Проверь официальные знаки и не продолжай движение, если высоты недостаточно."
+                            )
+                        )
+                        (routeClearanceWarnings ?: emptyList()).take(5).forEach { warning ->
+                            Text("⚠ $warning", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            label(
+                                "Starting navigation does not mean the route has been verified as safe.",
+                                "Запуск навигации не означает, что безопасность маршрута подтверждена."
+                            ),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showClearanceConfirmation = false
+                        clearanceWarningConfirmed = true
+                        startNavigation()
+                    }) {
+                        Text(label("I reviewed — continue", "Проверил — продолжить"))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearanceConfirmation = false }) {
+                        Text(label("Go back", "Вернуться"))
+                    }
+                }
+            )
+        }
+
         if (settingsOpen) {
             AlertDialog(
                 onDismissRequest = { settingsOpen = false },
