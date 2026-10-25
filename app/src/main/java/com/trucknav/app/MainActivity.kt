@@ -734,6 +734,7 @@ private fun TruckNavApp() {
     var remainingDistanceMiles by remember { mutableStateOf(0.0) }
     var remainingTimeMinutes by remember { mutableStateOf(0.0) }
     var distanceToNextTurnMiles by remember { mutableStateOf(0.0) }
+    var timeToNextTurnMinutes by remember { mutableStateOf(0.0) }
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
     val speechEngine = remember(context) { TextToSpeech(context) { } }
     androidx.compose.runtime.DisposableEffect(speechEngine) {
@@ -874,7 +875,11 @@ private fun TruckNavApp() {
             }
             val nextTurnPointIndex = (((currentInstructionIndex + 1).toDouble() / routeInstructions.size) * (routePoints.size - 1)).toInt().coerceIn(closestIndex, routePoints.lastIndex)
             distanceToNextTurnMiles = (cumulativeMiles[nextTurnPointIndex] - cumulativeMiles[closestIndex]).coerceAtLeast(0.0)
-        } else distanceToNextTurnMiles = remainingMiles
+            timeToNextTurnMinutes = if (summaryMiles > 0.0 && totalMinutes > 0.0) distanceToNextTurnMiles * totalMinutes / summaryMiles else 0.0
+        } else {
+            distanceToNextTurnMiles = remainingMiles
+            timeToNextTurnMinutes = remainingTimeMinutes
+        }
     }
 
     // Refresh POIs automatically when the selected category or map area changes.
@@ -1234,7 +1239,7 @@ private fun TruckNavApp() {
                             if (routeInstructions.isNotEmpty()) {
                                 Text(label("Next turn / exit", "Следующий поворот / съезд"), style = MaterialTheme.typography.labelMedium)
                                 Text(routeInstructions[currentInstructionIndex.coerceIn(0, routeInstructions.lastIndex)], style = MaterialTheme.typography.titleMedium)
-                                Text(String.format(Locale.US, "%.1f mi", distanceToNextTurnMiles) + " • " + label("approximate distance", "примерное расстояние"), style = MaterialTheme.typography.bodyMedium)
+                                Text(String.format(Locale.US, "%.1f mi", distanceToNextTurnMiles) + " • " + formatEta(timeToNextTurnMinutes, russian) + " • " + label("approx.", "примерно"), style = MaterialTheme.typography.bodyMedium)
                             }
                             Text(label("Guidance is approximate; follow road signs and verify height/weight restrictions.", "Подсказки ориентировочные; соблюдай знаки и проверяй ограничения высоты и веса."), style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { cancelNavigation() }, modifier = Modifier.fillMaxWidth()) {
