@@ -838,6 +838,8 @@ private fun TruckNavApp() {
         onDispose { try { manager.removeUpdates(listener) } catch (_: Exception) { } }
     }
 
+    fun label(en: String, ru: String) = if (russian) ru else en
+
     LaunchedEffect(currentLocation, isNavigating, routePoints, routeInstructions, currentInstructionIndex, routeSummary) {
         if (!isNavigating) return@LaunchedEffect
         val location = currentLocation ?: return@LaunchedEffect
@@ -972,8 +974,6 @@ private fun TruckNavApp() {
         }
     }
 
-
-    fun label(en: String, ru: String) = if (russian) ru else en
 
     fun startNavigation() {
         val clearanceWarnings = routeClearanceWarnings
