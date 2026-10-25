@@ -109,6 +109,35 @@ private enum class AppTab { MAP, ROUTE, POI, SAVED, VEHICLE }
 
 private data class LatLng(val latitude: Double, val longitude: Double)
 
+private data class TruckProfile(
+    val heightFt: Double,
+    val widthFt: Double,
+    val lengthFt: Double,
+    val weightLb: Double,
+    val axles: Int
+)
+
+private fun parseTruckProfile(
+    heightRaw: String,
+    widthRaw: String,
+    lengthRaw: String,
+    weightRaw: String,
+    axlesRaw: String
+): TruckProfile? {
+    val height = heightRaw.trim().replace(",", "").toDoubleOrNull() ?: return null
+    val width = widthRaw.trim().replace(",", "").toDoubleOrNull() ?: return null
+    val length = lengthRaw.trim().replace(",", "").toDoubleOrNull() ?: return null
+    val weight = weightRaw.trim().replace(",", "").toDoubleOrNull() ?: return null
+    val axles = axlesRaw.trim().toIntOrNull() ?: return null
+
+    // Broad sanity bounds catch empty, mistyped, or unit-confused entries before routing.
+    if (height !in 1.0..30.0 || width !in 1.0..20.0 ||
+        length !in 1.0..200.0 || weight !in 1.0..300000.0 || axles !in 2..20
+    ) return null
+
+    return TruckProfile(height, width, length, weight, axles)
+}
+
 private suspend fun geocodeDestination(query: String): LatLng? = withContext(Dispatchers.IO) {
     var connection: HttpURLConnection? = null
     try {
@@ -737,12 +766,12 @@ private fun TruckNavApp() {
     LaunchedEffect(Unit) {
         availableUpdate = checkForTruckNavUpdate(BuildConfig.VERSION_CODE)
     }
-    var height by remember { mutableStateOf("13.6") }
-    var width by remember { mutableStateOf("8.5") }
-    var length by remember { mutableStateOf("71.0") }
-    var weight by remember { mutableStateOf("36,287") }
-    var axles by remember { mutableStateOf("5") }
-    var vehicleType by remember { mutableStateOf("Semi truck") }
+    var height by remember { mutableStateOf(settingsPrefs.getString("truck_height_ft", "13.6") ?: "13.6") }
+    var width by remember { mutableStateOf(settingsPrefs.getString("truck_width_ft", "8.5") ?: "8.5") }
+    var length by remember { mutableStateOf(settingsPrefs.getString("truck_length_ft", "71.0") ?: "71.0") }
+    var weight by remember { mutableStateOf(settingsPrefs.getString("truck_weight_lb", "36,287") ?: "36,287") }
+    var axles by remember { mutableStateOf(settingsPrefs.getString("truck_axles", "5") ?: "5") }
+    var vehicleType by remember { mutableStateOf(settingsPrefs.getString("truck_type", "Semi truck") ?: "Semi truck") }
 
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -896,6 +925,15 @@ private fun TruckNavApp() {
             statusMessage = label("Enter a destination address or city.", "Введи адрес или город назначения.")
             return
         }
+        val truckProfile = parseTruckProfile(height, width, length, weight, axles)
+        if (truckProfile == null) {
+            statusMessage = label(
+                "Check truck dimensions: enter numeric feet, pounds, and 2–20 axles.",
+                "Проверь габариты: введи числовые значения в футах, фунтах и количество осей от 2 до 20."
+            )
+            selectedTab = AppTab.VEHICLE
+            return
+        }
         routeLoading = true
         routePoints = emptyList()
         routeSummary = ""
@@ -910,13 +948,9 @@ private fun TruckNavApp() {
                     return@launch
                 }
                 statusMessage = label("Calculating road route…", "Рассчитываю маршрут…")
-                val parsedHeight = height.toDoubleOrNull() ?: 13.6
-                val parsedWidth = width.toDoubleOrNull() ?: 8.5
-                val parsedLength = length.toDoubleOrNull() ?: 71.0
-                val parsedWeight = weight.replace(",", "").toDoubleOrNull() ?: 36287.0
-                val parsedAxles = axles.toIntOrNull() ?: 5
+                val parsedHeight = truckProfile.heightFt
                 val result = fetchRoadRoute(
-                    start, end, parsedHeight, parsedWidth, parsedLength, parsedWeight, parsedAxles,
+                    start, end, truckProfile.heightFt, truckProfile.widthFt, truckProfile.lengthFt, truckProfile.weightLb, truckProfile.axles,
                     avoidTolls, avoidFerries, avoidHighways, avoidUnpaved,
                     if (russian) "ru-RU" else "en-US"
                 )
@@ -954,6 +988,15 @@ private fun TruckNavApp() {
             if (!hasLocationPermission) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
             return
         }
+        val truckProfile = parseTruckProfile(height, width, length, weight, axles)
+        if (truckProfile == null) {
+            statusMessage = label(
+                "Check truck dimensions: enter numeric feet, pounds, and 2–20 axles.",
+                "Проверь габариты: введи числовые значения в футах, фунтах и количество осей от 2 до 20."
+            )
+            selectedTab = AppTab.VEHICLE
+            return
+        }
         routeLoading = true
         routePoints = emptyList()
         routeSummary = ""
@@ -962,13 +1005,9 @@ private fun TruckNavApp() {
         coroutineScope.launch {
             try {
                 statusMessage = label("Calculating truck route to selected point…", "Рассчитываю грузовой маршрут до выбранной точки…")
-                val parsedHeight = height.toDoubleOrNull() ?: 13.6
-                val parsedWidth = width.toDoubleOrNull() ?: 8.5
-                val parsedLength = length.toDoubleOrNull() ?: 71.0
-                val parsedWeight = weight.replace(",", "").toDoubleOrNull() ?: 36287.0
-                val parsedAxles = axles.toIntOrNull() ?: 5
+                val parsedHeight = truckProfile.heightFt
                 val result = fetchRoadRoute(
-                    start, point, parsedHeight, parsedWidth, parsedLength, parsedWeight, parsedAxles,
+                    start, point, truckProfile.heightFt, truckProfile.widthFt, truckProfile.lengthFt, truckProfile.weightLb, truckProfile.axles,
                     avoidTolls, avoidFerries, avoidHighways, avoidUnpaved,
                     if (russian) "ru-RU" else "en-US"
                 )
@@ -1445,7 +1484,10 @@ private fun TruckNavApp() {
                                                 "Box truck" -> "Бокс-трак"
                                                 else -> "Седельный тягач"
                                             }), modifier = Modifier.weight(1f))
-                                            TextButton(onClick = { vehicleType = type }) {
+                                            TextButton(onClick = {
+                                                vehicleType = type
+                                                settingsPrefs.edit().putString("truck_type", type).apply()
+                                            }) {
                                                 Text(if (vehicleType == type) "✓" else label("Select", "Выбрать"))
                                             }
                                         }
@@ -1460,7 +1502,26 @@ private fun TruckNavApp() {
                                     }
                                     OutlinedTextField(axles, { axles = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text(label("Axles", "Количество осей")) })
                                     Button(onClick = {
-                                        statusMessage = label("Truck profile values are in this session; persistent profiles are coming next.", "Параметры сохранены в текущем сеансе; постоянное сохранение добавим далее.")
+                                        val parsed = parseTruckProfile(height, width, length, weight, axles)
+                                        if (parsed == null) {
+                                            statusMessage = label(
+                                                "Profile not saved. Check the numeric values and units.",
+                                                "Профиль не сохранён. Проверь числовые значения и единицы измерения."
+                                            )
+                                        } else {
+                                            settingsPrefs.edit()
+                                                .putString("truck_height_ft", height.trim())
+                                                .putString("truck_width_ft", width.trim())
+                                                .putString("truck_length_ft", length.trim())
+                                                .putString("truck_weight_lb", weight.trim())
+                                                .putString("truck_axles", axles.trim())
+                                                .putString("truck_type", vehicleType)
+                                                .apply()
+                                            statusMessage = label(
+                                                "Truck profile saved on this device and will be used for the next route.",
+                                                "Профиль грузовика сохранён на устройстве и будет использоваться при следующем расчёте маршрута."
+                                            )
+                                        }
                                     }, modifier = Modifier.fillMaxWidth()) { Text(label("Save truck profile", "Сохранить профиль")) }
                                 }
                             }
@@ -1604,8 +1665,8 @@ private fun TruckNavApp() {
                         }
                         Text(
                             label(
-                                "These preferences are saved on this device. They will affect route calculation after the truck-routing engine is connected.",
-                                "Настройки сохраняются на этом устройстве. На расчёт маршрута они начнут влиять после подключения движка грузовой навигации."
+                                "These preferences are saved on this device and apply to the next route calculation.",
+                                "Настройки сохраняются на устройстве и применяются при следующем расчёте маршрута."
                             ),
                             style = MaterialTheme.typography.bodySmall
                         )
